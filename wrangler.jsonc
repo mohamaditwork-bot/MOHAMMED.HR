@@ -9,7 +9,7 @@
     "run_worker_first": true
   },
   "kv_namespaces": [
-    { "binding": "HR", "id": "REPLACE_WITH_KV_ID" }
+    { "binding": "HR", "id": "134f8ce69add444daf5bf63e3e6a0981" }
   ],
   "observability": { "enabled": true }
   // Secrets (set with `wrangler secret put`): SESSION_SECRET, HR_USERS_SEED
