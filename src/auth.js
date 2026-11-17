@@ -47,6 +47,10 @@ export async function verifyPassword(pw, stored) {
   return safeEqual(await pbkdf2(pw, unhex(salt), Number(iter)), unhex(hash));
 }
 
+// Roles from least to most access.
+export const ROLES = ["viewer", "editor", "admin"];
+export const roleAtLeast = (role, min) => ROLES.indexOf(role) >= ROLES.indexOf(min);
+
 // ---------- users (KV key "users": { "<id>": { name, role, hash } }) ----------
 // HR_USERS_SEED secret (JSON array of {id,name,role,hash}) adds any user not stored yet.
 export async function getUsers(env) {
@@ -56,7 +60,7 @@ export async function getUsers(env) {
     try {
       for (const u of JSON.parse(env.HR_USERS_SEED)) {
         if (u && u.id && !users[u.id]) {
-          users[u.id] = { name: u.name, role: u.role === "admin" ? "admin" : "viewer", hash: u.hash };
+          users[u.id] = { name: u.name, role: ROLES.includes(u.role) ? u.role : "viewer", hash: u.hash };
           changed = true;
         }
       }
@@ -122,12 +126,13 @@ async function readToken(env, req) {
 }
 
 // Returns {id,name,role} or a 401/403 Response.
-export async function requireUser(env, req, { admin = false } = {}) {
+export async function requireUser(env, req, { admin = false, role } = {}) {
+  const need = admin ? "admin" : role || "viewer";
   const t = await readToken(env, req);
   if (!t) return json({ error: "يلزم تسجيل الدخول" }, 401);
   const u = (await getUsers(env))[t.id];
   if (!u) return json({ error: "يلزم تسجيل الدخول" }, 401, { "set-cookie": clearCookie() });
-  if (admin && u.role !== "admin") return json({ error: "هذه الصلاحية للمدير فقط" }, 403);
+  if (!roleAtLeast(u.role, need)) return json({ error: need === "admin" ? "هذه الصلاحية للمدير فقط" : "ما عندك صلاحية تعديل" }, 403);
   const user = { id: t.id, name: u.name, role: u.role, iat: t.iat };
   try {
     req.sessionUser = user;
