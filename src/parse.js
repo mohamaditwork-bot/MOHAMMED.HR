@@ -1,4 +1,4 @@
-import XLSX from "xlsx";
+import * as XLSX from "xlsx";
 
 const pad = (n) => String(n).padStart(2, "0");
 
@@ -47,7 +47,7 @@ function labelValue(rows, label) {
 }
 
 export function parseWorkbook(buf) {
-  const wb = XLSX.read(buf, { type: "buffer", cellNF: true, cellDates: false });
+  const wb = XLSX.read(buf, { type: "array", cellNF: true, cellDates: false });
   const meta = { settings: { iqama: 40, contracts: 80, docs: 30 }, updated: null, title: null, subtitle: null };
   const sheets = [];
 
