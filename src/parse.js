@@ -1,4 +1,7 @@
-import * as XLSX from "xlsx";
+import * as XLSXns from "xlsx";
+
+// Works both when bundled and under plain Node ESM (where the CommonJS exports sit on .default).
+const XLSX = XLSXns.SSF ? XLSXns : XLSXns.default;
 
 const pad = (n) => String(n).padStart(2, "0");
 

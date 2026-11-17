@@ -4,5 +4,4 @@ node_modules/
 *.xls
 data/
 .env
-.wrangler/
-.dev.vars
+.vercel/

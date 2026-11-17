@@ -1,4 +1,4 @@
-// Cloudflare Worker: serves /api/* and leaves everything else to the static assets in public/.
+// API routes shared by the hosting adapter (api/handler.js on Vercel).
 import {
   json, sameOrigin, requireUser, getUsers, saveUsers, hashPassword, verifyPassword,
   isLocked, recordFail, clearFails, sessionCookie, clearCookie,
@@ -127,27 +127,20 @@ const ROUTES = {
   "/api/password": { POST: password },
 };
 
-async function handle(req, env) {
-  const url = new URL(req.url);
-  if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
-  const route = ROUTES[url.pathname];
+// Handle one API request. `path` is the API path such as "/api/login".
+export async function handle(req, env, path) {
+  const route = ROUTES[path];
   if (!route) return json({ error: "غير موجود" }, 404);
   const fn = route[req.method];
   if (!fn) return json({ error: "طريقة غير مسموحة" }, 405);
   if (req.method !== "GET" && !sameOrigin(req)) return json({ error: "طلب غير مسموح" }, 403);
+  let res;
   try {
-    return await fn(req, env);
+    res = await fn(req, env);
   } catch (e) {
     console.error(e);
-    return json({ error: "خطأ في الخادم" }, 500);
+    res = json({ error: "خطأ في الخادم" }, 500);
   }
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v);
+  return res;
 }
-
-export default {
-  async fetch(req, env) {
-    const res = await handle(req, env);
-    const out = new Response(res.body, res);
-    for (const [k, v] of Object.entries(SECURITY_HEADERS)) out.headers.set(k, v);
-    return out;
-  },
-};

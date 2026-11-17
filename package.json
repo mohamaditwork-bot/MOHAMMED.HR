@@ -2,14 +2,11 @@
   "name": "mohammed-hr",
   "private": true,
   "type": "module",
-  "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
-  },
+  "scripts": {},
   "dependencies": {
     "xlsx": "0.18.5"
   },
-  "devDependencies": {
-    "wrangler": "^4.164.0"
+  "engines": {
+    "node": "22.x"
   }
 }

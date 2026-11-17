@@ -1,21 +1,24 @@
 # MOHAMMED.HR
 لوحة التحكم للموارد البشرية — نوفوتيل المدينة المنورة
 
-موقع على Cloudflare Workers يعرض بيانات ملف الإكسل (الموظفين، العقود، الإقامات، الجوازات، رخص العمل، الصحية، التابعين، الخروج والعودة، مطابقة المنصات، التأمين الطبي، العمالة) بعد تسجيل الدخول.
+موقع على **Vercel** يعرض بيانات ملف الإكسل (الموظفين، العقود، الإقامات، الجوازات، رخص العمل، الصحية، التابعين، الخروج والعودة، مطابقة المنصات، التأمين الطبي، العمالة) بعد تسجيل الدخول.
 
-- **لا توجد أي بيانات موظفين في هذا المستودع.** البيانات والمستخدمين محفوظة في Cloudflare KV، ولا تُرسل إلا بعد تسجيل الدخول.
+- **لا توجد أي بيانات موظفين في هذا المستودع.** البيانات والمستخدمين محفوظة في Upstash Redis، ولا تُرسل إلا بعد تسجيل الدخول.
 - المدير يرفع ملف الإكسل المحدّث من صفحة **الإدارة** داخل الموقع، ويضيف/يعدّل المستخدمين.
 - المتبقي (يوم) والحالة تُحسب تلقائيًا من تاريخ اليوم وحدود التنبيه في ملف الإكسل.
 
-## الإعداد على Cloudflare
-1. أنشئ KV namespace (مثلاً `HR`) وحط الـ id في `wrangler.jsonc` مكان `REPLACE_WITH_KV_ID`.
-2. أضف الأسرار (Secrets) للـ Worker:
+## الإعداد على Vercel
+1. Add New → Project → Import المستودع (Framework: Other، بدون أوامر بناء).
+2. Storage → Create Database → **Upstash for Redis** → اربطه بالمشروع (يضيف `KV_REST_API_URL` و`KV_REST_API_TOKEN`).
+3. Settings → Environment Variables:
    - `SESSION_SECRET` — نص عشوائي طويل (32 حرف أو أكثر) لتوقيع الجلسات.
    - `HR_USERS_SEED` — JSON لمستخدمين أوليين `[{id,name,role,hash}]` بكلمات مرور مشفّرة PBKDF2.
-3. `npm install` ثم `npx wrangler deploy` — أو اربط المستودع من Workers & Pages ← Create ← Import a repository ليُنشر تلقائيًا مع كل تحديث.
+4. Redeploy، ثم ادخل بحساب المدير وارفع ملف الإكسل من صفحة الإدارة.
 
 ## البنية
 - `public/` — صفحة الدخول واللوحة.
-- `src/worker.js` — الـ API: `/api/login`, `logout`, `me`, `data`, `upload`, `users`, `password`.
+- `api/handler.js` — دالة Vercel تستقبل كل `/api/*` (عبر `vercel.json`).
+- `src/routes.js` — الـ API: `login`, `logout`, `me`, `data`, `upload`, `users`, `password`.
 - `src/auth.js` — كلمات المرور (PBKDF2) والجلسات الموقّعة وقفل المحاولات.
+- `src/store.js` — التخزين في Upstash Redis.
 - `src/parse.js` — تحليل ملف الإكسل.
