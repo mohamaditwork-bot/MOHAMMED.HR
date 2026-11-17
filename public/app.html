@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>لوحة الموارد البشرية</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side" id="side">
+      <div class="brand">
+        <img src="/logo-white.png" alt="Novotel">
+        <div>الموارد البشرية والعلاقات الحكومية</div>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="me" id="me"></div>
+    </aside>
+    <main class="main">
+      <div class="topbar">
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn ghost small menu-btn" id="menuBtn" aria-label="القائمة">☰</button>
+          <div>
+            <h2 id="pageTitle">...</h2>
+            <div class="sub" id="pageSub"></div>
+          </div>
+        </div>
+        <div class="gsearch">
+          <input class="input" id="gq" placeholder="ابحث برقم الهوية أو الرقم الوظيفي أو الاسم" autocomplete="off">
+          <div class="results hidden" id="gres"></div>
+        </div>
+      </div>
+      <div id="view"><div class="empty">جاري التحميل...</div></div>
+    </main>
+  </div>
+  <div id="modalRoot"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
