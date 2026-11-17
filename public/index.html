@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>تسجيل الدخول — الموارد البشرية</title>
+  <script>
+    (function () {
+      var th = "light", lg = "ar";
+      try {
+        th = localStorage.getItem("hr_theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        lg = localStorage.getItem("hr_lang") === "en" ? "en" : "ar";
+      } catch (e) {}
+      document.documentElement.setAttribute("data-theme", th);
+      document.documentElement.lang = lg;
+      document.documentElement.dir = lg === "ar" ? "rtl" : "ltr";
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <div class="login">
+    <form class="login-card" id="f" autocomplete="on">
+      <img class="logo" src="/logo-navy.png" alt="Novotel">
+      <h1 data-t="app"></h1>
+      <p class="sub" data-t="hotel"></p>
+      <div class="field">
+        <label class="fl" for="uid" data-t="login.id"></label>
+        <input class="input" id="uid" name="username" inputmode="numeric" autocomplete="username" required dir="ltr">
+      </div>
+      <div class="field">
+        <label class="fl" for="pw" data-t="login.pw"></label>
+        <input class="input" id="pw" name="password" type="password" autocomplete="current-password" required dir="ltr">
+      </div>
+      <button class="btn" style="width:100%;padding:12px" id="go" type="submit" data-t="login.go"></button>
+      <p class="msg err" id="msg"></p>
+      <div class="login-tools">
+        <button type="button" class="btn ghost sm" id="langBtn"></button>
+        <button type="button" class="btn ghost sm" id="themeBtn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.5 0-.9-.1-1.4A5.5 5.5 0 0 1 13.4 3.1 9 9 0 0 0 12 3z"/></svg></button>
+      </div>
+    </form>
+  </div>
+  <script type="module">
+    import { t, getLang, setLang } from "/js/i18n.js";
+    const $ = (s) => document.querySelector(s);
+    const paint = () => {
+      document.querySelectorAll("[data-t]").forEach((el) => (el.textContent = t(el.dataset.t)));
+      $("#langBtn").textContent = t("lang");
+      document.title = t("login.title") + " — " + t("app");
+    };
+    paint();
+    $("#langBtn").onclick = () => { setLang(getLang() === "ar" ? "en" : "ar"); paint(); };
+    $("#themeBtn").onclick = () => {
+      const n = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", n);
+      try { localStorage.setItem("hr_theme", n); } catch {}
+    };
+    if (new URLSearchParams(location.search).has("idle")) $("#msg").textContent = t("login.idle");
+    else fetch("/api/me").then((r) => { if (r.ok) location.replace("/app.html"); });
+    $("#f").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const go = $("#go");
+      $("#msg").textContent = ""; go.disabled = true;
+      try {
+        const r = await fetch("/api/login", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: $("#uid").value.trim(), password: $("#pw").value }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) return location.replace("/app.html");
+        $("#msg").textContent = d.error || "Error";
+      } catch { $("#msg").textContent = "Network error"; }
+      go.disabled = false;
+    });
+  </script>
+</body>
+</html>
