@@ -129,6 +129,7 @@ const ROUTES = {
 
 // Handle one API request. `path` is the API path such as "/api/login".
 export async function handle(req, env, path) {
+  const authed = path !== "/api/login" && path !== "/api/logout";
   const route = ROUTES[path];
   if (!route) return json({ error: "غير موجود" }, 404);
   const fn = route[req.method];
@@ -140,6 +141,10 @@ export async function handle(req, env, path) {
   } catch (e) {
     console.error(e);
     res = json({ error: "خطأ في الخادم" }, 500);
+  }
+  // Activity keeps the session alive: refresh the cookie on every successful signed-in request.
+  if (authed && res.status < 400 && req.sessionUser) {
+    res.headers.append("set-cookie", await sessionCookie(env, req.sessionUser.id, req.sessionUser.iat));
   }
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v);
   return res;

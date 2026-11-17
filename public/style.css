@@ -195,3 +195,14 @@ tfoot td { font-weight: 700; background: #f7f7fb; }
 /* numbers/dates keep left-to-right order inside RTL tables */
 td.num { direction: ltr; unicode-bidi: isolate; text-align: right; }
 .kv b { unicode-bidi: plaintext; }
+
+/* logo bar at the top of every page */
+.brandbar {
+  display: flex; align-items: center; gap: 14px; background: var(--card); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 10px 16px; margin-bottom: 16px;
+}
+.brandbar img { height: 46px; width: auto; }
+.brandbar b { display: block; color: var(--navy); font-size: 16px; }
+.brandbar span { color: var(--muted); font-size: 12.5px; }
+@media (max-width: 900px) { .brandbar img { height: 38px; } .brandbar b { font-size: 14px; } }
+@media print { .brandbar { box-shadow: none; } }

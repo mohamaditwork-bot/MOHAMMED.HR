@@ -169,9 +169,17 @@ function route() {
   return viewDashboard();
 }
 
+// Texts from the Excel file may mention the operating group; the site shows Novotel only.
+const noGroup = (t) =>
+  String(t || "")
+    .replace(/\s*[—–-]\s*مجموعة ميسان الدولية/g, "")
+    .replace(/مجموعة ميسان الدولية|ميسان/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
 function setTitle(t, sub) {
-  $("#pageTitle").textContent = t;
-  $("#pageSub").textContent = sub || "";
+  $("#pageTitle").textContent = noGroup(t);
+  $("#pageSub").textContent = noGroup(sub);
   document.title = t + " — الموارد البشرية";
 }
 
@@ -200,7 +208,7 @@ function viewDashboard() {
     `<div class="kpi ${cls} ${go ? "click" : ""}" ${go ? `data-go="${esc(go)}"` : ""}><div class="l">${esc(l)}</div><div class="v">${v}</div><div class="h">${esc(hint)}</div></div>`;
 
   let h = `<div class="kpis">
-    ${kpi("الموظفين الدائمين", total, "ميسان", "", "s/بيانات الموظفين")}
+    ${kpi("الموظفين الدائمين", total, "نوفوتيل المدينة المنورة", "", "s/بيانات الموظفين")}
     ${kpi("سعوديين", saudi, "", "green")}
     ${kpi("نسبة السعودة", pct(saudi, total), "من الموظفين الدائمين")}
     ${kpi("وافدين", total - saudi, "")}
@@ -673,6 +681,47 @@ function viewNoData() {
   $("#view").innerHTML = `<div class="panel empty">لا توجد بيانات بعد.${ME.role === "admin" ? ` <a href="#admin">ارفع ملف الإكسل من صفحة الإدارة</a>` : " يرجى التواصل مع مدير النظام."}</div>`;
 }
 
+// ================= idle lock =================
+// After 30 minutes without activity the page signs out and returns to the login screen.
+// Activity also refreshes the server session (at most every 5 minutes).
+const IDLE_MS = 30 * 60e3;
+const PING_MS = 5 * 60e3;
+const LS_KEY = "hr_last_activity";
+let lastActivity = Date.now();
+let lastPing = Date.now();
+
+const readShared = () => {
+  try { return +localStorage.getItem(LS_KEY) || 0; } catch { return 0; }
+};
+const writeShared = (t) => {
+  try { localStorage.setItem(LS_KEY, String(t)); } catch {}
+};
+
+async function lockNow() {
+  try { await fetch("/api/logout", { method: "POST" }); } catch {}
+  location.replace("/?idle=1");
+}
+
+function setupIdleLock() {
+  const touch = () => {
+    lastActivity = Date.now();
+    writeShared(lastActivity);
+    if (lastActivity - lastPing > PING_MS) {
+      lastPing = lastActivity;
+      fetch("/api/me").then((r) => { if (r.status === 401) location.replace("/?idle=1"); }).catch(() => {});
+    }
+  };
+  ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "wheel"].forEach((ev) =>
+    window.addEventListener(ev, touch, { passive: true })
+  );
+  writeShared(lastActivity);
+  setInterval(() => {
+    // another open tab may have been active more recently
+    const last = Math.max(lastActivity, readShared());
+    if (Date.now() - last >= IDLE_MS) lockNow();
+  }, 20e3);
+}
+
 // ================= boot =================
 async function loadData() {
   try {
@@ -694,6 +743,7 @@ async function loadData() {
   }
   renderNav();
   setupSearch();
+  setupIdleLock();
   $("#menuBtn").onclick = () => $("#side").classList.toggle("open");
   window.addEventListener("hashchange", route);
   route();

@@ -14,7 +14,7 @@
     <form class="login-card" id="f" autocomplete="on">
       <img src="/logo-navy.png" alt="Novotel">
       <h1>لوحة الموارد البشرية</h1>
-      <p class="sub">نوفوتيل المدينة المنورة — مجموعة ميسان الدولية</p>
+      <p class="sub">نوفوتيل المدينة المنورة</p>
       <div class="field">
         <label for="id">رقم الهوية / الإقامة</label>
         <input id="id" name="username" inputmode="numeric" autocomplete="username" required dir="ltr">
@@ -29,7 +29,11 @@
     </form>
   </div>
   <script>
-    fetch("/api/me").then(r => { if (r.ok) location.replace("/app.html"); });
+    if (new URLSearchParams(location.search).has("idle")) {
+      document.getElementById("msg").textContent = "تم قفل الصفحة بعد 30 دقيقة بدون نشاط — سجّل الدخول مرة ثانية";
+    } else {
+      fetch("/api/me").then(r => { if (r.ok) location.replace("/app.html"); });
+    }
     const f = document.getElementById("f"), msg = document.getElementById("msg"), go = document.getElementById("go");
     f.addEventListener("submit", async (e) => {
       e.preventDefault();

@@ -1,6 +1,7 @@
 // Authentication helpers for the Cloudflare Worker (WebCrypto only).
 const COOKIE = "hr_session";
-const SESSION_HOURS = 12;
+const SESSION_HOURS = 12; // absolute limit for one login
+export const IDLE_MINUTES = 30; // session ends after this long with no activity
 const MAX_FAILS = 5;
 const LOCK_MINUTES = 15;
 const PBKDF2_ITER = 100000; // Workers' maximum
@@ -93,10 +94,14 @@ async function hmac(env, data) {
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(data)));
 }
 
-export async function sessionCookie(env, id) {
-  const payload = b64url(enc.encode(JSON.stringify({ id, exp: Date.now() + SESSION_HOURS * 3600e3 })));
+// Sliding session: `exp` moves forward on each authenticated request (idle limit),
+// `iat` stays fixed so a login never lasts longer than SESSION_HOURS.
+export async function sessionCookie(env, id, iat = Date.now()) {
+  const exp = Math.min(Date.now() + IDLE_MINUTES * 60e3, iat + SESSION_HOURS * 3600e3);
+  const payload = b64url(enc.encode(JSON.stringify({ id, iat, exp })));
   const token = `${payload}.${b64url(await hmac(env, payload))}`;
-  return `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESSION_HOURS * 3600}`;
+  const maxAge = Math.max(0, Math.floor((exp - Date.now()) / 1000));
+  return `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
 }
 export const clearCookie = () => `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
 
@@ -108,7 +113,9 @@ async function readToken(env, req) {
   try {
     if (!safeEqual(await hmac(env, payload), fromB64url(sig))) return null;
     const data = JSON.parse(new TextDecoder().decode(fromB64url(payload)));
-    return data.exp > Date.now() ? data : null;
+    const now = Date.now();
+    if (!(data.exp > now) || !data.iat || now - data.iat > SESSION_HOURS * 3600e3) return null;
+    return data;
   } catch {
     return null;
   }
@@ -121,7 +128,11 @@ export async function requireUser(env, req, { admin = false } = {}) {
   const u = (await getUsers(env))[t.id];
   if (!u) return json({ error: "يلزم تسجيل الدخول" }, 401, { "set-cookie": clearCookie() });
   if (admin && u.role !== "admin") return json({ error: "هذه الصلاحية للمدير فقط" }, 403);
-  return { id: t.id, name: u.name, role: u.role };
+  const user = { id: t.id, name: u.name, role: u.role, iat: t.iat };
+  try {
+    req.sessionUser = user;
+  } catch {}
+  return user;
 }
 
 // Same-origin check for state-changing requests.
