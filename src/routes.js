@@ -9,6 +9,7 @@ import { TABLES, coerce } from "./schema.js";
 import { importWorkbook } from "./importer.js";
 import { detectWorkbook, applyUpdateFile } from "./updates.js";
 import { signRoute, appraisalsRoute } from "./appraisals.js";
+import { toTrash, trashRoute } from "./trash.js";
 import { askClaude, aiConfigured, buildContext } from "./ai.js";
 import { sendAlertEmail, emailConfigured } from "./alerts.js";
 import { DEFAULT_SETTINGS } from "../public/js/logic.js";
@@ -165,7 +166,8 @@ async function rows(req, env) {
   if (req.method === "DELETE") {
     const id = parseInt(body.id, 10);
     if (!id) return json({ error: "رقم السجل مفقود" }, 400);
-    const before = await db.query(`SELECT * FROM ${table} WHERE id = $1`, [id]);
+    const snap = await toTrash(db, table, id, u);
+    const before = snap ? [snap.row] : [];
     await db.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
     await audit(env, u, "delete", table, id, before[0] ? { name: before[0].name_ar || before[0].name || before[0].title || before[0].member_name } : null);
     return json({ ok: true });
@@ -258,6 +260,7 @@ async function files(req, env) {
   }
   if (req.method === "DELETE") {
     const body = (await readJson(req)) || {};
+    await toTrash(db, "attachments", parseInt(body.id, 10), u);
     await db.query("DELETE FROM attachments WHERE id = $1", [parseInt(body.id, 10)]);
     await audit(env, u, "delete", "attachments", body.id);
     return json({ ok: true });
@@ -430,6 +433,11 @@ async function appraisals(req, env) {
   return appraisalsRoute(req, env, u, audit);
 }
 const sign = (req, env) => signRoute(req, env, audit);
+async function trash(req, env) {
+  const u = await requireUser(env, req, { role: req.method === "GET" ? "viewer" : "editor" });
+  if (u instanceof Response) return u;
+  return trashRoute(req, env, u, audit);
+}
 
 const ROUTES = {
   "/api/login": { POST: login },
@@ -448,6 +456,7 @@ const ROUTES = {
   "/api/cron": { GET: cron },
   "/api/appraisals": { GET: appraisals, POST: appraisals, PUT: appraisals, DELETE: appraisals },
   "/api/sign": { GET: sign, POST: sign },
+  "/api/trash": { GET: trash, POST: trash, DELETE: trash },
 };
 
 // Handle one API request. `path` is the API path such as "/api/login".

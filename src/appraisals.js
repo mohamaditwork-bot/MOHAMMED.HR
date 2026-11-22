@@ -1,6 +1,7 @@
 // Performance appraisal + contract-renewal decision, signed electronically
 // through private links: manager rates & signs, then the employee signs.
 import { getDb } from "./db.js";
+import { toTrash } from "./trash.js";
 
 // Criteria (weights total 70) — same as the hotel's appraisal form.
 export const CRITERIA = [
@@ -176,6 +177,7 @@ export async function appraisalsRoute(req, env, user, audit) {
   }
   if (req.method === "DELETE") {
     const id = parseInt(body.id, 10);
+    await toTrash(db, "appraisals", id, user);
     await db.query("DELETE FROM appraisals WHERE id = $1", [id]);
     await audit(env, user, "delete", "appraisals", id, null);
     return json({ ok: true });

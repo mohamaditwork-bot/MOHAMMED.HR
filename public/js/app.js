@@ -82,6 +82,7 @@ const I = {
   movements: "M16 17.01V10h-2v7.01h-3L15 21l4-3.99zM9 3 5 6.99h3V14h2V6.99h3z",
   appraisals: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm-1 7V3.5L18.5 9zM7 18l2.5-3 1.8 2.2L14 14l3 4z",
   reports: "M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H7v-7h2zm4 0h-2V7h2zm4 0h-2v-4h2z",
+  trash: "M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z",
   audit: "M13 3a9 9 0 0 0-9 9H1l4 4 4-4H6a7 7 0 1 1 2.1 5l-1.4 1.4A9 9 0 1 0 13 3zm-1 5v5l4.3 2.5.7-1.2-3.5-2.1V8z",
 };
 const icon = (k) => `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${I[k] || I.dashboard}"/></svg>`;
@@ -91,7 +92,7 @@ const NAV = [
   ["nav.people", ["employees", "labor", "leaves", "movements", "appraisals", "dependents"]],
   ["nav.compliance", ["documents", "insurance", "platforms", "tasks"]],
   ["nav.growth", ["saudization", "recruitment"]],
-  ["nav.tools", ["import"]],
+  ["nav.tools", ["import", "trash"]],
   ["nav.admin", ["settings", "users", "audit"], true],
 ];
 
@@ -766,6 +767,10 @@ PAGES.saudization = () => {
   const target = st.saudization_target;
   const need = saudisNeeded(r, target);
   const depts = groupRatio(staff, "department");
+  const today = new Date().toISOString().slice(0, 10);
+  const showAllRules = !!tableState.allRules;
+  const ruleRows = D.saud_rules.map((rule) => ({ rule, c: ruleCoverage(rule, staff) }))
+    .sort((a, b) => (b.c.missing - a.c.missing) || (b.c.total - a.c.total) || String(a.rule.effective_date || "").localeCompare(String(b.rule.effective_date || "")));
   const titles = groupRatio(staff, "job_title");
   const rows2 = (list) => list.map((g) => `<tr><td>${esc(g.key)}</td><td class="num">${g.total}</td><td class="num">${g.saudi}</td><td class="num">${g.non_saudi}</td>
     <td><div style="display:flex;align-items:center;gap:8px"><div class="bar" style="flex:1"><i style="width:${g.pct.toFixed(0)}%;background:${target && g.pct < target ? "#e8892a" : ""}"></i></div><span class="num">${pct(g.pct)}</span></div></td>
@@ -796,8 +801,10 @@ PAGES.saudization = () => {
     <div class="card" style="margin-bottom:16px"><h3>${esc(t("s.bydept"))}</h3><div class="tbl compact"><table><thead>${thead}</thead><tbody>${rows2(depts)}</tbody>
       <tfoot><tr><td>${esc(t("total"))}</td><td class="num">${r.total}</td><td class="num">${r.saudi}</td><td class="num">${r.non_saudi}</td><td class="num">${pct(r.pct)}</td>${target ? `<td class="num">${need}</td>` : ""}</tr></tfoot></table></div></div>
     <div class="card" style="margin-bottom:16px"><h3>${esc(t("s.rules"))} ${canEdit() ? `<button class="btn sm no-print" id="addRule">+ ${esc(t("s.rule.add"))}</button>` : ""}</h3>
-      <div class="tbl compact"><table><thead><tr><th></th><th>${esc(f("occupations").split("(")[0])}</th><th class="num">${esc(f("required_pct"))}</th><th class="num">${esc(t("s.covered"))}</th><th class="num">${esc(t("k.saudi"))}</th><th>${esc(t("k.ratio"))}</th><th></th><th>${esc(f("source"))}</th></tr></thead>
-      <tbody>${D.saud_rules.map((rule) => { const c = ruleCoverage(rule, staff); const ok = rule.required_pct === null || c.pct >= Number(rule.required_pct); return `<tr class="click" data-rule="${rule.id}"><td><b>${esc(rule.name)}</b></td><td class="wrap">${esc(rule.occupations || "")}</td><td class="num">${rule.required_pct ?? ""}${rule.required_pct !== null ? "%" : ""}</td><td class="num">${c.total}</td><td class="num">${c.saudi}</td><td class="num">${c.total ? pct(c.pct) : "—"}</td><td>${c.total ? `<span class="pill ${ok ? "s-ok" : "s-expired"}">${esc(t(ok ? "s.compliant" : "s.below"))}</span>` : ""}</td><td class="wrap">${esc(rule.source || "")}</td></tr>`; }).join("") || `<tr><td colspan="8" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div></div>
+      <div class="tbl compact"><table><thead><tr><th></th><th>${esc(f("occupations").split("(")[0])}</th><th class="num">${esc(f("required_pct"))}</th><th class="num">${esc(t("s.covered"))}</th><th class="num">${esc(t("k.saudi"))}</th><th class="num">${esc(t("s.required"))}</th><th class="num">${esc(t("s.missing"))}</th><th></th><th>${esc(f("effective_date"))}</th></tr></thead>
+      <tbody>${ruleRows.filter((x) => showAllRules || x.c.total).map(({ rule, c }) => { const ok = !c.missing; const fut = rule.effective_date && rule.effective_date > today; return `<tr class="click" data-rule="${rule.id}" title="${esc(rule.notes || "")}"><td><b>${esc(rule.name)}</b></td><td class="wrap">${esc(rule.occupations || "")}</td><td class="num">${rule.required_pct ?? ""}${rule.required_pct !== null ? "%" : ""}</td><td class="num">${c.total}</td><td class="num">${c.saudi}</td><td class="num">${c.total ? c.required : "—"}</td><td class="num">${c.missing ? `<b class="d-exp">${c.missing}</b>` : c.total ? "0" : "—"}</td><td>${c.total ? `<span class="pill ${ok ? "s-ok" : fut ? "s-near" : "s-expired"}">${esc(t(ok ? "s.compliant" : fut ? "s.upcoming" : "s.below"))}</span>` : ""}</td><td class="num">${esc(fmtDate(rule.effective_date))}</td></tr>`; }).join("") || `<tr><td colspan="9" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
+      ${ruleRows.some((x) => !x.c.total) ? `<button class="btn ghost sm no-print" id="allRules" style="margin-top:10px">${esc(showAllRules ? t("s.rules.less") : t("s.rules.all").replace("{n}", ruleRows.filter((x) => !x.c.total).length))}</button>` : ""}
+      ${D.saud_rules.some((x) => x.source) ? `<p class="muted small" style="margin-bottom:0">${esc(t("s.method"))} — ${esc([...new Set(D.saud_rules.map((x) => x.source).filter(Boolean))].join(" • "))}</p>` : ""}</div>
     <div class="card"><h3>${esc(t("s.bytitle"))}</h3><div class="tbl compact" style="max-height:480px;overflow:auto"><table><thead>${thead}</thead><tbody>${rows2(titles)}</tbody></table></div></div>`;
 
   const sim = () => {
@@ -812,6 +819,7 @@ PAGES.saudization = () => {
     toast(t("saved")); await refresh();
   });
   $("#addRule")?.addEventListener("click", () => openForm("saud_rules", null, { title: t("s.rule.add") }));
+  $("#allRules")?.addEventListener("click", () => { tableState.allRules = !tableState.allRules; route(); });
   $$("[data-rule]").forEach((tr) => tr.addEventListener("click", () => openForm("saud_rules", D.saud_rules.find((x) => x.id === +tr.dataset.rule))));
   $("#aiSaud")?.addEventListener("click", () => aiPanel($("#aiOut"), "saudization", t("s.ai")));
   const pal = palette();
@@ -1159,6 +1167,33 @@ function userForm(u, draw) {
     try { draw((await api("/api/users", { method: "DELETE", body: { id: u.id } })).users); m.close(); } catch (e) { $("#ue", m.root).textContent = e.message; }
   });
 }
+
+const TR_ENT = { employees: "p.employees", documents: "p.documents", dependents: "p.dependents", insurance: "p.insurance", tasks: "p.tasks", leaves: "p.leaves", movements: "p.movements", appraisals: "p.appraisals", attachments: "files", jobs: "r.jobs", applicants: "r.applicants", saud_rules: "s.rules" };
+PAGES.trash = async () => {
+  $("#view").innerHTML = `${head(t("p.trash"), t("tr.desc"))}<div class="card" id="tb"><div class="empty">${esc(t("loading"))}</div></div>`;
+  const rows = (await api("/api/trash")).rows;
+  if (!rows.length) { $("#tb").innerHTML = `<p class="muted">${esc(t("tr.none"))}</p>`; return; }
+  dataTable($("#tb"), {
+    id: "trash", rows, exportName: t("p.trash"),
+    cols: [
+      { k: "deleted_at", label: t("a.at"), num: true, render: (r) => esc(new Date(r.deleted_at).toLocaleString(L() === "en" ? "en-GB" : "ar-SA-u-ca-gregory-nu-latn")) },
+      { k: "entity", label: t("tr.entity"), get: (r) => t(TR_ENT[r.entity] || r.entity) },
+      { k: "label", label: f("name"), render: (r) => `<b>${esc(r.label || "#" + r.entity_id)}</b>${r.extra_count ? `<br><small class="muted">${esc(t("tr.with").replace("{n}", r.extra_count))}</small>` : ""}` },
+      { k: "deleted_by", label: t("tr.by") },
+      { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<span class="row-acts"><button class="btn success sm" data-rest="${r.id}">↩ ${esc(t("tr.restore"))}</button>${isAdmin() ? `<button class="btn ghost sm" data-purge="${r.id}">✕ ${esc(t("tr.purge"))}</button>` : ""}</span>` : "" },
+    ],
+    chipGet: (r) => t(TR_ENT[r.entity] || r.entity),
+    afterDraw: (root) => {
+      $$("[data-rest]", root).forEach((b) => b.addEventListener("click", async () => {
+        try { await api("/api/trash", { method: "POST", body: { id: +b.dataset.rest } }); toast(t("tr.restored")); await reload(); renderNav(); route(); } catch (e) { toast(e.message, true, 6000); }
+      }));
+      $$("[data-purge]", root).forEach((b) => b.addEventListener("click", async () => {
+        if (!confirm(t("confirm.delete"))) return;
+        try { await api("/api/trash", { method: "DELETE", body: { id: +b.dataset.purge } }); toast(t("deleted")); route(); } catch (e) { toast(e.message, true); }
+      }));
+    },
+  });
+};
 
 PAGES.audit = async () => {
   $("#view").innerHTML = `${head(t("p.audit"), "")}<div class="card" id="tb"><div class="empty">${esc(t("loading"))}</div></div>`;

@@ -18,7 +18,7 @@ const AR = {
   "print.generated": "تاريخ الطباعة", "print.by": "طُبع بواسطة", "filter.dept": "كل الأقسام", "filter.company": "كل الشركات",
   "filter.status": "كل الحالات", "filter.type": "كل الأنواع", "filter.nat": "كل الجنسيات",
   // statuses
-  "st.expired": "منتهي", "st.near": "قريب الانتهاء", "st.ok": "ساري", "st.none": "بدون تاريخ", "st.used": "مستخدمة — عاد",
+  "st.expired": "منتهي", "st.near": "قريب الانتهاء", "st.ok": "ساري", "st.none": "بدون تاريخ", "st.used": "مستخدمة — عاد", "s.required": "المطلوب سعوديين", "s.missing": "الناقص", "s.upcoming": "يبدأ لاحقًا", "s.rules.all": "عرض المهن غير الموجودة عندنا ({n})", "s.rules.less": "إخفاء المهن غير الموجودة", "s.method": "الحساب حسب الدليل الإجرائي: عدد العاملين في المهنة × النسبة مقرّب لأقرب عدد صحيح", "p.trash": "سلة المحذوفات", "tr.restore": "استرجاع", "tr.purge": "حذف نهائي", "tr.none": "السلة فاضية", "tr.desc": "أي شي ينحذف يتحفظ هنا مع بياناته المرتبطة وتقدر ترجعه", "tr.restored": "تم الاسترجاع", "tr.with": "مع {n} سجل مرتبط", "tr.entity": "النوع", "tr.by": "حذفه",
   "emp.active": "على رأس العمل", "emp.left": "غادر",
   // dashboard
   "k.staff": "الموظفون الدائمون", "k.saudi": "سعوديون", "k.nonsaudi": "غير سعوديين", "k.ratio": "نسبة السعودة", "k.labor": "عمالة الشركات",
@@ -98,7 +98,7 @@ const EN = {
   today: "Today", days: "days", total: "Total", open: "Open", required: "Required", optional: "Optional", "no.permission": "View only",
   "print.generated": "Printed on", "print.by": "Printed by", "filter.dept": "All departments", "filter.company": "All companies",
   "filter.status": "All statuses", "filter.type": "All types", "filter.nat": "All nationalities",
-  "st.expired": "Expired", "st.near": "Expiring soon", "st.ok": "Valid", "st.none": "No date", "st.used": "Used — returned",
+  "st.expired": "Expired", "st.near": "Expiring soon", "st.ok": "Valid", "st.none": "No date", "st.used": "Used — returned", "s.required": "Saudis required", "s.missing": "Missing", "s.upcoming": "Starts later", "s.rules.all": "Show professions we do not have ({n})", "s.rules.less": "Hide professions we do not have", "s.method": "Calculated per the MHRSD procedural guide: workers in the profession × rate, rounded to nearest whole", "p.trash": "Recycle bin", "tr.restore": "Restore", "tr.purge": "Delete forever", "tr.none": "The bin is empty", "tr.desc": "Everything deleted is kept here with its linked records and can be restored", "tr.restored": "Restored", "tr.with": "with {n} linked records", "tr.entity": "Type", "tr.by": "Deleted by",
   "emp.active": "Active", "emp.left": "Left",
   "k.staff": "Permanent staff", "k.saudi": "Saudis", "k.nonsaudi": "Non-Saudis", "k.ratio": "Saudization", "k.labor": "Contractor workers",
   "k.companies": "Supply companies", "k.workforce": "Total workforce", "k.expired": "Expired documents", "k.near": "Expiring soon",
