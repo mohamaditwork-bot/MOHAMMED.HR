@@ -2,7 +2,7 @@
 import { t, f, getLang, setLang } from "./i18n.js";
 import { renderDoc, GRADES, DECISIONS, STATUS as APR_STATUS } from "./appraisal-doc.js";
 import {
-  DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage,
+  DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, leavingReason,
 } from "./logic.js";
 
 // ================= helpers =================
@@ -715,8 +715,9 @@ PAGES.documents = () => {
     .filter((d) => EMP.has(d.employee_id))
     .map((d) => ({ ...d, s: docStatus(d, st), e: EMP.get(d.employee_id) }));
   $("#view").innerHTML = head(t("p.documents"), `${t("set.iqama")} ${st.iqama} • ${t("set.contracts")} ${st.contracts} • ${t("set.docs")} ${st.docs} ${t("days")}`,
-    `${canEdit() ? `<button class="btn" id="addDoc">+ ${esc(t("doc.add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div>`;
+    `${canEdit() ? `<button class="btn ghost" id="renewNow">🔁 ${esc(t("rn.btn").replace("{n}", st.contract_renew_days ?? 75))}</button><button class="btn" id="addDoc">+ ${esc(t("doc.add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div>`;
   $("#addDoc")?.addEventListener("click", () => openForm("documents", null, { title: t("doc.add") }));
+  $("#renewNow")?.addEventListener("click", renewContractsNow);
   dataTable($("#tb"), {
     id: "docs", rows, exportName: t("p.documents"),
     cols: [
@@ -727,14 +728,46 @@ PAGES.documents = () => {
       { k: "expiry", label: t("doc.expiry"), num: true, get: (r) => r.s.expiry || r.expiry_date },
       { k: "days", label: t("doc.days"), num: true, get: (r) => r.s.days, render: (r) => (r.s.status === "used" ? "—" : daysCell(r.s.days)) },
       { k: "status", label: t("doc.status"), get: (r) => t("st." + r.s.status), render: (r) => stPill(r.s.status) },
-      { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>` : "" },
+      { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<span class="row-acts"><button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>${r.doc_type === "contract" ? `<button class="btn ${r.details?.no_renew ? "danger" : "ghost"} sm" data-leave="${r.id}" title="${esc(t("rn.leave.t"))}">🚪 ${esc(r.details?.no_renew ? t("rn.leaving") : t("rn.leave"))}</button>` : ""}</span>` : "" },
     ],
     filters: [{ k: "type", label: t("filter.type"), get: (r) => docLabel(r.doc_type) }, { k: "kind", label: `${t("p.employees")} / ${t("p.labor")}`, get: (r) => t(r.e.kind === "labor" ? "p.labor" : "p.employees") }],
     chipGet: (r) => t("st." + r.s.status),
     onRow: (r) => openForm("documents", D.documents.find((d) => d.id === r.id)),
-    afterDraw: (root) => $$("[data-renew]", root).forEach((b) => b.addEventListener("click", () => renewDoc(+b.dataset.renew))),
+    afterDraw: (root) => {
+      $$("[data-renew]", root).forEach((b) => b.addEventListener("click", () => renewDoc(+b.dataset.renew)));
+      $$("[data-leave]", root).forEach((b) => b.addEventListener("click", () => toggleLeaving(+b.dataset.leave)));
+    },
   });
 };
+
+async function toggleLeaving(id) {
+  const d = D.documents.find((x) => x.id === id);
+  const det = { ...(d.details || {}) };
+  if (det.no_renew) { delete det.no_renew; delete det.no_renew_reason; }
+  else {
+    const why = prompt(t("rn.why"), "");
+    if (why === null) return;
+    det.no_renew = true; det.no_renew_reason = why.trim();
+  }
+  try { await api("/api/rows?table=documents", { method: "PUT", body: { id, details: det } }); toast(t("saved")); await refresh(); } catch (e) { toast(e.message, true); }
+}
+
+async function renewContractsNow() {
+  let prev;
+  try { prev = await api("/api/renew", { method: "POST", body: { dry_run: true } }); } catch (e) { return toast(e.message, true); }
+  const m = modal(`<header><h3>🔁 ${esc(t("rn.title").replace("{n}", prev.days))}</h3><button class="x" data-close>×</button></header>
+    <div class="body">
+      <h4>✅ ${esc(t("rn.will"))} (${prev.renewed.length})</h4>
+      <div class="tbl compact" style="max-height:300px;overflow:auto"><table><thead><tr><th>${esc(f("name"))}</th><th>${esc(t("rn.old"))}</th><th>${esc(t("rn.new"))}</th></tr></thead><tbody>
+      ${prev.renewed.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${esc(fmtDate(r.from))}</td><td class="num"><b>${esc(fmtDate(r.start))} ← ${esc(fmtDate(r.end))}</b></td></tr>`).join("") || `<tr><td colspan="3" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
+      <h4 style="margin-top:14px">🚪 ${esc(t("rn.skip"))} (${prev.skipped.length})</h4>
+      <ul>${prev.skipped.map((r) => `<li><b>${esc(r.name)}</b> — ${esc(fmtDate(r.expiry))} — ${esc(r.reason)}</li>`).join("") || `<li class="muted">${esc(t("none"))}</li>`}</ul>
+      <p class="muted small">${esc(t("rn.help"))}</p></div>
+    <footer><button class="btn ghost" data-close>${esc(t("cancel"))}</button>${prev.renewed.length ? `<button class="btn" id="rnGo">🔁 ${esc(t("rn.go").replace("{n}", prev.renewed.length))}</button>` : ""}</footer>`, "wide");
+  $("#rnGo", m.root)?.addEventListener("click", async () => {
+    try { const o = await api("/api/renew", { method: "POST", body: {} }); m.close(); toast(t("rn.done").replace("{n}", o.renewed.length)); await refresh(); } catch (e) { toast(e.message, true); }
+  });
+}
 
 function renewDoc(id) {
   const d = D.documents.find((x) => x.id === id);
@@ -1106,6 +1139,7 @@ PAGES.settings = () => {
           <div><label class="fl">${esc(t("set.docs"))}</label><input class="input" type="number" id="sD" value="${st.docs}" dir="ltr"></div>
           <div><label class="fl">${esc(t("s.target.set"))}</label><input class="input" type="number" id="sT" value="${st.saudization_target ?? ""}" dir="ltr"></div>
           <div class="full"><label><input type="checkbox" id="sR" ${st.contract_autorenew ? "checked" : ""}> ${esc(t("set.autorenew"))}</label></div>
+          <div><label class="fl">${esc(t("set.renewdays"))}</label><input class="input" type="number" id="sRD" value="${st.contract_renew_days ?? 75}" dir="ltr"></div>
           <div><label class="fl">${esc(t("set.hotel"))} (AR)</label><input class="input" id="sHA" value="${esc(st.hotel_name_ar)}"></div>
           <div><label class="fl">${esc(t("set.hotel"))} (EN)</label><input class="input" id="sHE" value="${esc(st.hotel_name_en)}" dir="ltr"></div>
         </div></div>
@@ -1117,7 +1151,7 @@ PAGES.settings = () => {
     <button class="btn" id="sSave">${esc(t("save"))}</button> <span class="msg" id="sm"></span>`;
   $("#sSave").addEventListener("click", async () => {
     try {
-      await api("/api/settings", { method: "PUT", body: { iqama: $("#sI").value, contracts: $("#sC").value, docs: $("#sD").value, saudization_target: $("#sT").value, contract_autorenew: $("#sR").checked, alert_emails: $("#sE").value, hotel_name_ar: $("#sHA").value, hotel_name_en: $("#sHE").value } });
+      await api("/api/settings", { method: "PUT", body: { iqama: $("#sI").value, contracts: $("#sC").value, docs: $("#sD").value, saudization_target: $("#sT").value, contract_autorenew: $("#sR").checked, contract_renew_days: $("#sRD").value, alert_emails: $("#sE").value, hotel_name_ar: $("#sHA").value, hotel_name_en: $("#sHE").value } });
       toast(t("saved")); await refresh();
     } catch (e) { $("#sm").textContent = e.message; }
   });
@@ -1426,8 +1460,8 @@ PAGES.appraisals = () => {
 };
 
 // ================= REPORTS =================
-const REPORTS = ["saud", "docs", "staff", "payroll", "leaves", "labor"];
-const REP_ICON = { saud: "📊", docs: "⏰", staff: "👥", payroll: "💰", leaves: "🌴", labor: "👷" };
+const REPORTS = ["leavers", "saud", "docs", "staff", "payroll", "leaves", "labor"];
+const REP_ICON = { leavers: "🚪", saud: "📊", docs: "⏰", staff: "👥", payroll: "💰", leaves: "🌴", labor: "👷" };
 
 PAGES.reports = () => {
   const which = tableState.report;
@@ -1484,6 +1518,22 @@ function buildReport(k) {
     const lv = D.leaves.filter((l) => l.status === "approved" && String(l.start_date).startsWith(year) && EMP.has(l.employee_id));
     return `<h3 class="rsec">${esc(t("lv.balance"))}</h3>${bal}<h3 class="rsec">${esc(t("lv.list"))} (${lv.length})</h3>` + reportTable([f("name"), f("leave_type"), f("start_date"), f("end_date"), f("days")],
       lv.map((l) => [esc(empName(EMP.get(l.employee_id))), esc(t("lv." + l.leave_type)), n(fmtDate(l.start_date)), n(fmtDate(l.end_date)), n(fmtNum(l.days))]));
+  }
+  if (k === "leavers") {
+    const list = D.documents.filter((d) => d.doc_type === "contract" && EMP.get(d.employee_id)?.status !== "left")
+      .map((d) => ({ d, e: EMP.get(d.employee_id), why: leavingReason(d, (D.appraisals || []).filter((a) => a.employee_id === d.employee_id && a.status !== "manager")) }))
+      .filter((x) => x.why).sort((a, b) => String(a.d.expiry_date).localeCompare(String(b.d.expiry_date)));
+    const files = (id) => (D.attachments || []).filter((a) => a.employee_id === id);
+    return `<div class="rsum"><div><span>${esc(t("rep.leavers.n"))}</span><b>${list.length}</b></div></div>` +
+      (list.length ? list.map(({ d, e, why }) => `<h3 class="rsec">${esc(empName(e))} — ${esc(e.job_title || "")}</h3>
+        <table class="rtable"><tbody>
+          <tr><th>${esc(f("emp_no"))}</th><td class="num">${esc(e.emp_no || "")}</td><th>${esc(f("id_no"))}</th><td class="num">${esc(e.id_no || "")}</td></tr>
+          <tr><th>${esc(f("department"))}</th><td>${esc(e.department || "")}</td><th>${esc(f("nationality"))}</th><td>${esc(e.nationality || "")}</td></tr>
+          <tr><th>${esc(f("join_date"))}</th><td class="num">${esc(fmtDate(e.join_date))}</td><th>${esc(t("rep.leavers.end"))}</th><td class="num"><b>${esc(fmtDate(d.expiry_date))}</b></td></tr>
+          <tr><th>${esc(t("rep.leavers.why"))}</th><td colspan="3">${esc(why)}</td></tr>
+          <tr><th>${esc(t("files"))}</th><td colspan="3">${files(e.id).map((a) => `<a href="/api/files?id=${a.id}" target="_blank" rel="noopener">📎 ${esc(a.file_name)}</a>`).join("<br>") || "—"}</td></tr>
+          <tr><th>${esc(t("p.documents"))}</th><td colspan="3">${D.documents.filter((x) => x.employee_id === e.id).map((x) => `${esc(docLabel(x.doc_type))}: <span class="num">${esc(fmtDate(x.expiry_date) || "—")}</span>`).join(" • ")}</td></tr>
+        </tbody></table>`).join("") : `<p class="muted">${esc(t("rep.leavers.none"))}</p>`);
   }
   if (k === "labor") {
     const stOf = (e, type) => { const d = D.documents.find((x) => x.employee_id === e.id && x.doc_type === type); return d ? docStatus(d, st) : { status: "none", expiry: null }; };

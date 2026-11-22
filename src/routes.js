@@ -10,6 +10,7 @@ import { importWorkbook } from "./importer.js";
 import { detectWorkbook, applyUpdateFile } from "./updates.js";
 import { signRoute, appraisalsRoute } from "./appraisals.js";
 import { toTrash, trashRoute } from "./trash.js";
+import { renewContracts } from "./renewals.js";
 import { askClaude, aiConfigured, buildContext } from "./ai.js";
 import { sendAlertEmail, emailConfigured } from "./alerts.js";
 import { DEFAULT_SETTINGS } from "../public/js/logic.js";
@@ -354,6 +355,7 @@ async function settings(req, env) {
     next.saudization_target = t === null || (t >= 0 && t <= 100) ? t : current.saudization_target;
   }
   if ("contract_autorenew" in body) next.contract_autorenew = Boolean(body.contract_autorenew);
+  if ("contract_renew_days" in body) next.contract_renew_days = Math.max(1, Math.min(180, parseInt(body.contract_renew_days, 10) || 75));
   if ("alert_emails" in body) next.alert_emails = String(body.alert_emails || "").slice(0, 1000);
   for (const k of ["hotel_name_ar", "hotel_name_en"]) if (body[k]) next[k] = String(body[k]).slice(0, 120);
   await env.HR.put("settings", JSON.stringify(next));
@@ -421,10 +423,16 @@ async function alertsNow(req, env) {
 async function cron(req, env) {
   const auth = req.headers.get("authorization") || "";
   if (!env.CRON_SECRET || auth !== `Bearer ${env.CRON_SECRET}`) return json({ error: "unauthorized" }, 401);
+  const st = await getSettings(env);
+  let renew = null;
+  if (st.contract_autorenew) {
+    renew = await renewContracts(env, st, { name: "التجديد التلقائي" });
+    if (renew.renewed.length) await audit(env, { id: "cron", name: "cron" }, "auto_renew", "documents", null, { renewed: renew.renewed.length, skipped: renew.skipped.length });
+  }
   const data = await loadAll(env);
-  const out = await sendAlertEmail(env, await getSettings(env), data);
+  const out = await sendAlertEmail(env, st, data);
   await audit(env, { id: "cron", name: "cron" }, "send_alerts", null, null, out);
-  return json(out);
+  return json({ ...out, renewed: renew?.renewed.length ?? 0 });
 }
 
 async function appraisals(req, env) {
@@ -433,6 +441,14 @@ async function appraisals(req, env) {
   return appraisalsRoute(req, env, u, audit);
 }
 const sign = (req, env) => signRoute(req, env, audit);
+async function renewNow(req, env) {
+  const u = await requireUser(env, req, { role: "editor" });
+  if (u instanceof Response) return u;
+  const body = (await readJson(req)) || {};
+  const out = await renewContracts(env, await getSettings(env), u, { dryRun: !!body.dry_run });
+  if (!body.dry_run) await audit(env, u, "renew_contracts", "documents", null, { renewed: out.renewed.length, skipped: out.skipped.length });
+  return json(out);
+}
 async function trash(req, env) {
   const u = await requireUser(env, req, { role: req.method === "GET" ? "viewer" : "editor" });
   if (u instanceof Response) return u;
@@ -457,6 +473,7 @@ const ROUTES = {
   "/api/appraisals": { GET: appraisals, POST: appraisals, PUT: appraisals, DELETE: appraisals },
   "/api/sign": { GET: sign, POST: sign },
   "/api/trash": { GET: trash, POST: trash, DELETE: trash },
+  "/api/renew": { POST: renewNow },
 };
 
 // Handle one API request. `path` is the API path such as "/api/login".
