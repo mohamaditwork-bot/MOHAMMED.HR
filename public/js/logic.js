@@ -107,15 +107,22 @@ export function saudisNeeded(r, targetPct) {
 }
 
 // Employees covered by a localization rule (job title contains one of the occupations).
+// Arabic-insensitive text: أ/إ/آ→ا, ة→ه, ى→ي, no tatweel/diacritics, single spaces.
+export const normAr = (s) =>
+  String(s || "").toLowerCase().replace(/[\u064B-\u0652\u0640]/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/\s+/g, " ").trim();
+
+// Employees covered by a localization rule.
 export function ruleCoverage(rule, staff) {
-  const occ = String(rule.occupations || "")
-    .split(/[,،\n]/)
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-  if (!occ.length) return { ...ratio([]), members: [] };
+  const occ = String(rule.occupations || "").split(/[,،\n]/).map(normAr).filter(Boolean);
+  if (!occ.length) return { ...ratio([]), members: [], required: 0, missing: 0 };
+  // Exact official profession (Qiwa, else iqama), or the job title contains the text.
   const members = staff.filter((e) => {
-    const t = [e.job_title, e.iqama_job, e.qiwa_job].filter(Boolean).join(" ").toLowerCase();
-    return occ.some((o) => t.includes(o));
+    const prof = normAr(e.qiwa_job || e.iqama_job);
+    const title = normAr(e.job_title);
+    return occ.some((o) => prof === o || (title && title.includes(o)));
   });
-  return { ...ratio(members), members };
+  const r = ratio(members);
+  // MHRSD method: required Saudis = workers in the profession × rate, rounded to the nearest whole (0.5 up).
+  const required = rule.required_pct === null || rule.required_pct === undefined || rule.required_pct === "" ? null : Math.round((r.total * Number(rule.required_pct)) / 100);
+  return { ...r, members, required, missing: required === null ? 0 : Math.max(0, required - r.saudi) };
 }

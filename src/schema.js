@@ -187,6 +187,17 @@ CREATE TABLE IF NOT EXISTS audit (
 
 ALTER TABLE leaves ADD COLUMN IF NOT EXISTS outside_ksa boolean DEFAULT false;
 
+CREATE TABLE IF NOT EXISTS trash (
+  id serial PRIMARY KEY,
+  entity text NOT NULL,
+  entity_id text,
+  label text,
+  data jsonb NOT NULL,
+  extra_count integer DEFAULT 0,
+  deleted_by text,
+  deleted_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS appraisals (
   id serial PRIMARY KEY,
   employee_id integer NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
