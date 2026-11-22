@@ -296,7 +296,7 @@ async function syncLeaveVisa(db, leave) {
     `INSERT INTO documents (employee_id, doc_type, issue_date, expiry_date, details, notes) VALUES ($1,'exit_reentry',$2,$3,$4,$5)
      ON CONFLICT (employee_id, doc_type) DO UPDATE SET issue_date = EXCLUDED.issue_date, expiry_date = EXCLUDED.expiry_date,
        details = COALESCE(documents.details, '{}'::jsonb) || EXCLUDED.details, notes = EXCLUDED.notes, updated_at = now()`,
-    [leave.employee_id, start, end, JSON.stringify({ leave_id: leave.id }), "مطابقة لإجازة خارج المملكة — تأكد من إصدارها في مقيم"]
+    [leave.employee_id, start, end, JSON.stringify({ leave_id: leave.id, outside: "نعم" }), "مطابقة لإجازة خارج المملكة — تأكد من إصدارها في مقيم"]
   );
   return old
     ? `تأشيرة الخروج والعودة الحالية (${old}) ما تغطي الإجازة — تم تعديلها لتطابق الإجازة ${start} ← ${end}. تأكد من تمديدها/إصدارها في مقيم.`

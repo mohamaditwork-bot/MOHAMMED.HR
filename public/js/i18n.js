@@ -18,7 +18,7 @@ const AR = {
   "print.generated": "تاريخ الطباعة", "print.by": "طُبع بواسطة", "filter.dept": "كل الأقسام", "filter.company": "كل الشركات",
   "filter.status": "كل الحالات", "filter.type": "كل الأنواع", "filter.nat": "كل الجنسيات",
   // statuses
-  "st.expired": "منتهي", "st.near": "قريب الانتهاء", "st.ok": "ساري", "st.none": "بدون تاريخ",
+  "st.expired": "منتهي", "st.near": "قريب الانتهاء", "st.ok": "ساري", "st.none": "بدون تاريخ", "st.used": "مستخدمة — عاد",
   "emp.active": "على رأس العمل", "emp.left": "غادر",
   // dashboard
   "k.staff": "الموظفون الدائمون", "k.saudi": "سعوديون", "k.nonsaudi": "غير سعوديين", "k.ratio": "نسبة السعودة", "k.labor": "عمالة الشركات",
@@ -98,7 +98,7 @@ const EN = {
   today: "Today", days: "days", total: "Total", open: "Open", required: "Required", optional: "Optional", "no.permission": "View only",
   "print.generated": "Printed on", "print.by": "Printed by", "filter.dept": "All departments", "filter.company": "All companies",
   "filter.status": "All statuses", "filter.type": "All types", "filter.nat": "All nationalities",
-  "st.expired": "Expired", "st.near": "Expiring soon", "st.ok": "Valid", "st.none": "No date",
+  "st.expired": "Expired", "st.near": "Expiring soon", "st.ok": "Valid", "st.none": "No date", "st.used": "Used — returned",
   "emp.active": "Active", "emp.left": "Left",
   "k.staff": "Permanent staff", "k.saudi": "Saudis", "k.nonsaudi": "Non-Saudis", "k.ratio": "Saudization", "k.labor": "Contractor workers",
   "k.companies": "Supply companies", "k.workforce": "Total workforce", "k.expired": "Expired documents", "k.near": "Expiring soon",

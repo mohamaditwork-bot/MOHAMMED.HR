@@ -59,6 +59,11 @@ export function docStatus(doc, settings = DEFAULT_SETTINGS, today = todayUTC()) 
   }
   const days = daysUntil(expiry, today);
   const thr = Number(settings[(DOC_TYPES[doc.doc_type] || DOC_TYPES.other).thr]) || 30;
+  // An expired exit/re-entry visa only matters while the holder is still abroad.
+  if (days < 0 && doc.doc_type === "exit_reentry") {
+    const det = typeof doc.details === "string" ? JSON.parse(doc.details || "{}") : doc.details || {};
+    if (det.outside !== "نعم") return { status: "used", days, expiry, thr };
+  }
   return { status: days < 0 ? "expired" : days <= thr ? "near" : "ok", days, expiry, thr };
 }
 

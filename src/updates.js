@@ -222,6 +222,10 @@ H.residents = async (db, wb) => {
     const isOut = txt(r["خارج المملكه"]) === "نعم";
     await setPlatform(db, e, { muqeem: "✔", outside_ksa: isOut ? "نعم" : "لا" });
     if (isOut) outside.push(nm(e));
+    await db.query(
+      "UPDATE documents SET details = COALESCE(details, '{}'::jsonb) || $1::jsonb WHERE employee_id = $2 AND doc_type = 'exit_reentry'",
+      [JSON.stringify({ outside: isOut ? "نعم" : "لا" }), e.id]
+    );
     if (txt(r["المهنة"]) && txt(r["المهنة"]) !== e.iqama_job) await db.query("UPDATE employees SET iqama_job = $1 WHERE id = $2", [txt(r["المهنة"]), e.id]);
     n++;
   }
