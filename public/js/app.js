@@ -472,9 +472,9 @@ PAGES.dashboard = () => {
       data: [{ name: t("k.saudi"), value: r.saudi }, { name: t("k.nonsaudi"), value: r.non_saudi }] }],
   });
   const types = Object.keys(DOC_TYPES).filter((k) => docSt.some((x) => x.d.doc_type === k));
-  const series = ["expired", "near", "ok", "none"].map((s, i) => ({
+  const series = ["expired", "near", "ok", "used", "none"].map((s, i) => ({
     name: t("st." + s), type: "bar", stack: "a", barMaxWidth: 26,
-    itemStyle: { color: ["#c4372a", "#e8892a", "#1d8048", "#9aa0b4"][i] },
+    itemStyle: { color: ["#c4372a", "#e8892a", "#1d8048", "#7f8fb5", "#9aa0b4"][i] },
     data: types.map((k) => docSt.filter((x) => x.d.doc_type === k && x.s.status === s).length),
   }));
   chart($("#chDocs"), { tooltip: { trigger: "axis" }, legend: { bottom: 0, textStyle: label }, grid: { top: 10, left: 8, right: 8, bottom: 40, containLabel: true },
@@ -724,7 +724,7 @@ PAGES.documents = () => {
       { k: "type", label: t("doc.type"), get: (r) => docLabel(r.doc_type) },
       { k: "number", label: t("doc.number"), num: true },
       { k: "expiry", label: t("doc.expiry"), num: true, get: (r) => r.s.expiry || r.expiry_date },
-      { k: "days", label: t("doc.days"), num: true, get: (r) => r.s.days, render: (r) => daysCell(r.s.days) },
+      { k: "days", label: t("doc.days"), num: true, get: (r) => r.s.days, render: (r) => (r.s.status === "used" ? "—" : daysCell(r.s.days)) },
       { k: "status", label: t("doc.status"), get: (r) => t("st." + r.s.status), render: (r) => stPill(r.s.status) },
       { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>` : "" },
     ],
