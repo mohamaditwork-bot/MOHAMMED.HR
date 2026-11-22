@@ -57,9 +57,10 @@ export async function getUsers(env) {
   const users = (await env.HR.get("users", "json")) || {};
   if (env.HR_USERS_SEED) {
     let changed = false;
+    const removed = new Set((await env.HR.get("users_removed", "json")) || []);
     try {
       for (const u of JSON.parse(env.HR_USERS_SEED)) {
-        if (u && u.id && !users[u.id]) {
+        if (u && u.id && !users[u.id] && !removed.has(String(u.id))) {
           users[u.id] = { name: u.name, role: ROLES.includes(u.role) ? u.role : "viewer", hash: u.hash };
           changed = true;
         }

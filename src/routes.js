@@ -126,6 +126,10 @@ async function users(req, env) {
     if (id === me.id) return json({ error: "ما تقدر تحذف حسابك" }, 400);
     delete all[id];
     await saveUsers(env, all);
+    // Remember it so the hosting seed list does not bring it back.
+    const removed = new Set((await env.HR.get("users_removed", "json")) || []);
+    removed.add(id);
+    await env.HR.put("users_removed", JSON.stringify([...removed]));
     await audit(env, me, "delete", "user", id);
     return list();
   }
@@ -137,6 +141,8 @@ async function users(req, env) {
   if (pw && pw.length < 6) return json({ error: "كلمة المرور 6 خانات على الأقل" }, 400);
   if (id === me.id && role !== "admin") return json({ error: "ما تقدر تشيل صلاحية المدير عن نفسك" }, 400);
   const existed = Boolean(all[id]);
+  const removedList = (await env.HR.get("users_removed", "json")) || [];
+  if (removedList.includes(id)) await env.HR.put("users_removed", JSON.stringify(removedList.filter((x) => x !== id)));
   all[id] = { name, role, hash: pw ? await hashPassword(pw) : all[id].hash };
   await saveUsers(env, all);
   await clearFails(env, id);
