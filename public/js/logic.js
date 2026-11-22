@@ -72,6 +72,7 @@ export function buildAlerts(employees, documents, settings = DEFAULT_SETTINGS, t
     const e = byId.get(d.employee_id);
     if (!e || e.status === "left") continue;
     const s = docStatus(d, settings, today);
+    if (d.doc_type === "exit_reentry" && s.days !== null && s.days < 0) continue; // used / expired visas are not shown
     if (s.status === "expired" || s.status === "near") out.push({ ...s, doc: d, employee: e });
   }
   return out.sort((a, b) => a.days - b.days);
