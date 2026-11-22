@@ -25,7 +25,7 @@ const SECURITY_HEADERS = {
 };
 
 // Dates come back from Postgres as Date objects (or full timestamps): send plain YYYY-MM-DD.
-const DATE_COLS = new Set(["birth_date", "join_date", "start_date", "issue_date", "expiry_date", "passport_expiry", "due_date", "effective_date"]);
+const DATE_COLS = new Set(["birth_date", "join_date", "start_date", "end_date", "move_date", "issue_date", "expiry_date", "passport_expiry", "due_date", "effective_date"]);
 function clean(rows) {
   return rows.map((r) => {
     const o = {};
@@ -59,6 +59,7 @@ async function loadAll(env) {
   const db = await getDb(env);
   const out = {};
   for (const [t, cfg] of Object.entries(TABLES)) out[t] = clean(await db.query(`SELECT * FROM ${t} ORDER BY ${cfg.order}`));
+  out.attachments = clean(await db.query("SELECT id, employee_id, document_id, file_name, mime, size, uploaded_by, created_at FROM attachments ORDER BY id DESC"));
   return out;
 }
 
@@ -169,6 +170,12 @@ async function rows(req, env) {
   for (const [col, type] of Object.entries(cfg.cols)) {
     if (col in body) data[col] = coerce(type, body[col]);
   }
+  // Leave length: inclusive days between the two dates when not given.
+  if (table === "leaves" && data.start_date && data.end_date && (data.days === null || data.days === undefined)) {
+    const d = Math.round((Date.parse(data.end_date) - Date.parse(data.start_date)) / 864e5) + 1;
+    if (d < 1) return json({ error: "تاريخ النهاية قبل البداية" }, 400);
+    data.days = d;
+  }
   if (req.method === "POST") {
     for (const r of cfg.required) if (data[r] === null || data[r] === undefined) return json({ error: `الحقل مطلوب: ${r}` }, 400);
     const cols = Object.keys(data);
@@ -212,6 +219,59 @@ function dbError(e) {
   if (/foreign key/i.test(m)) return "السجل المرتبط غير موجود";
   console.error(e);
   return "تعذر الحفظ";
+}
+
+// ---------- attachments (stored in Postgres, max 4 MB each) ----------
+const FILE_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const toB64 = (u8) => {
+  let s = "";
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+const fromB64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+
+async function files(req, env) {
+  const url = new URL(req.url);
+  const u = await requireUser(env, req, { role: req.method === "GET" ? "viewer" : "editor" });
+  if (u instanceof Response) return u;
+  const db = await getDb(env);
+  if (req.method === "GET") {
+    const id = parseInt(url.searchParams.get("id"), 10);
+    if (!id) return json({ error: "رقم الملف مفقود" }, 400);
+    const rows = await db.query("SELECT file_name, mime, encode(data, 'base64') AS b64 FROM attachments WHERE id = $1", [id]);
+    if (!rows.length) return json({ error: "الملف غير موجود" }, 404);
+    const f = rows[0];
+    return new Response(fromB64(String(f.b64).replace(/\s+/g, "")), {
+      headers: {
+        "content-type": f.mime,
+        "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(f.file_name)}`,
+        "cache-control": "private, no-store",
+      },
+    });
+  }
+  if (req.method === "DELETE") {
+    const body = (await readJson(req)) || {};
+    await db.query("DELETE FROM attachments WHERE id = $1", [parseInt(body.id, 10)]);
+    await audit(env, u, "delete", "attachments", body.id);
+    return json({ ok: true });
+  }
+  // POST: raw file body; metadata in headers
+  const mime = (req.headers.get("content-type") || "").split(";")[0].trim();
+  if (!FILE_TYPES.has(mime)) return json({ error: "الملف لازم يكون PDF أو صورة" }, 400);
+  const buf = new Uint8Array(await req.arrayBuffer());
+  if (!buf.length) return json({ error: "الملف فاضي" }, 400);
+  if (buf.length > MAX_UPLOAD) return json({ error: "الملف أكبر من 4 ميجا" }, 413);
+  let name = "file";
+  try { name = decodeURIComponent(req.headers.get("x-file-name") || "file").slice(0, 200); } catch {}
+  const empId = parseInt(req.headers.get("x-employee-id"), 10) || null;
+  const docId = parseInt(req.headers.get("x-document-id"), 10) || null;
+  if (!empId) return json({ error: "حدد الموظف" }, 400);
+  const out = await db.query(
+    "INSERT INTO attachments (employee_id, document_id, file_name, mime, size, data, uploaded_by) VALUES ($1,$2,$3,$4,$5, decode($6, 'base64'), $7) RETURNING id",
+    [empId, docId, name, mime, buf.length, toB64(buf), u.name]
+  );
+  await audit(env, u, "create", "attachments", out[0].id, { name, employee_id: empId, document_id: docId });
+  return json({ ok: true, id: out[0].id });
 }
 
 async function importXlsx(req, env) {
@@ -337,6 +397,7 @@ const ROUTES = {
   "/api/all": { GET: all },
   "/api/rows": { GET: rows, POST: rows, PUT: rows, DELETE: rows },
   "/api/import": { POST: importXlsx },
+  "/api/files": { GET: files, POST: files, DELETE: files },
   "/api/settings": { GET: settings, PUT: settings },
   "/api/audit": { GET: auditLog },
   "/api/ai": { POST: ai },

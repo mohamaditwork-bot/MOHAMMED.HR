@@ -139,6 +139,41 @@ CREATE TABLE IF NOT EXISTS saud_rules (
   notes text
 );
 
+CREATE TABLE IF NOT EXISTS leaves (
+  id serial PRIMARY KEY,
+  employee_id integer NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  leave_type text NOT NULL DEFAULT 'annual',
+  start_date date NOT NULL,
+  end_date date NOT NULL,
+  days numeric,
+  status text NOT NULL DEFAULT 'pending',
+  notes text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS movements (
+  id serial PRIMARY KEY,
+  employee_id integer NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  move_type text NOT NULL,
+  move_date date NOT NULL,
+  from_value text,
+  to_value text,
+  notes text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS attachments (
+  id serial PRIMARY KEY,
+  employee_id integer REFERENCES employees(id) ON DELETE CASCADE,
+  document_id integer REFERENCES documents(id) ON DELETE CASCADE,
+  file_name text NOT NULL,
+  mime text NOT NULL,
+  size integer NOT NULL,
+  data bytea NOT NULL,
+  uploaded_by text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS audit (
   id serial PRIMARY KEY,
   at timestamptz NOT NULL DEFAULT now(),
@@ -214,6 +249,16 @@ export const TABLES = {
     },
     required: ["name"],
     order: "created_at DESC",
+  },
+  leaves: {
+    cols: { employee_id: "int", leave_type: "text", start_date: "date", end_date: "date", days: "number", status: "text", notes: "text" },
+    required: ["employee_id", "start_date", "end_date"],
+    order: "start_date DESC",
+  },
+  movements: {
+    cols: { employee_id: "int", move_type: "text", move_date: "date", from_value: "text", to_value: "text", notes: "text" },
+    required: ["employee_id", "move_type", "move_date"],
+    order: "move_date DESC",
   },
   saud_rules: {
     cols: { name: "text", occupations: "text", required_pct: "number", source: "text", effective_date: "date", notes: "text" },

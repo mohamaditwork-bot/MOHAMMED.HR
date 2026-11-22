@@ -62,6 +62,23 @@ const AR = {
   // audit
   "a.at": "الوقت", "a.user": "المستخدم", "a.action": "الإجراء", "a.entity": "السجل",
   // idle / login
+  "p.leaves": "الإجازات", "p.movements": "الحركات الوظيفية", "p.reports": "مركز التقارير",
+  "lv.annual": "سنوية", "lv.sick": "مرضية", "lv.emergency": "اضطرارية", "lv.unpaid": "بدون راتب", "lv.hajj": "حج", "lv.maternity": "أمومة", "lv.other": "أخرى",
+  "ls.pending": "بانتظار الموافقة", "ls.approved": "معتمدة", "ls.rejected": "مرفوضة",
+  "lv.add": "طلب إجازة", "lv.balance": "أرصدة الإجازات", "lv.list": "سجل الإجازات", "lv.entitled": "الاستحقاق السنوي", "lv.used": "المستخدم هذه السنة", "lv.remaining": "المتبقي",
+  "lv.ontoday": "في إجازة اليوم", "lv.pendingk": "طلبات بانتظار الموافقة", "lv.daysyear": "أيام إجازة معتمدة هذه السنة", "approve": "اعتماد", "reject": "رفض",
+  "mv.promotion": "ترقية", "mv.transfer": "نقل قسم", "mv.salary": "تعديل راتب", "mv.title": "تغيير مسمى", "mv.contract": "تجديد عقد", "mv.warning": "إنذار", "mv.termination": "إنهاء خدمة", "mv.resignation": "استقالة", "mv.other": "أخرى",
+  "mv.add": "حركة جديدة", "files": "المرفقات", "file.upload": "رفع ملف (PDF أو صورة)", "file.open": "فتح", "file.none": "لا توجد مرفقات",
+  "quick.add": "إضافة سريعة", "welcome.morning": "صباح الخير", "welcome.evening": "مساء الخير", "welcome.sub": "هذي نظرة سريعة على الموارد البشرية اليوم",
+  "empty.title": "ما فيه بيانات للحين", "empty.desc": "ارفع ملف الإكسل حق الموظفين والعمالة وتطلع كل البيانات والتحليلات مباشرة.", "empty.go": "ارفع ملف الإكسل",
+  "rep.title": "مركز التقارير", "rep.desc": "تقارير رسمية جاهزة للطباعة أو الحفظ PDF بترويسة نوفوتيل.", "rep.open": "عرض التقرير", "rep.back": "رجوع للتقارير",
+  "rep.saud": "تقرير السعودة", "rep.saud.d": "النسبة العامة وحسب القسم والمطلوب للهدف",
+  "rep.docs": "الوثائق المنتهية والقريبة", "rep.docs.d": "كل وثيقة منتهية أو قريبة الانتهاء مرتبة بالأولوية",
+  "rep.staff": "الموظفون حسب القسم", "rep.staff.d": "قائمة الموظفين مجمعة بالأقسام",
+  "rep.payroll": "كشف الرواتب", "rep.payroll.d": "الأساسي والسكن والنقل والإجمالي والبنك",
+  "rep.leaves": "تقرير الإجازات", "rep.leaves.d": "الأرصدة والإجازات المعتمدة هذه السنة",
+  "rep.labor": "عمالة الشركات", "rep.labor.d": "العمالة حسب الشركة مع حالة الإقامة وأجير",
+  "rep.prepared": "أعدّه", "rep.date": "التاريخ", "rep.sign": "التوقيع", "rep.total": "الإجمالي", "actions.view": "الملف",
   "login.title": "تسجيل الدخول", "login.id": "رقم الهوية / الإقامة", "login.pw": "كلمة المرور", "login.go": "دخول", "login.idle": "تم قفل الصفحة بعد 30 دقيقة بدون نشاط — سجّل الدخول مرة ثانية",
 };
 
@@ -114,6 +131,23 @@ const EN = {
   "set.daily": "A daily alert is sent automatically at 7 AM (Saudi time) for every expired or expiring document.",
   "u.id": "ID number (username)", "u.name": "Name", "u.role": "Role", "u.pw": "Password (empty = ID number)", "u.add": "New user",
   "a.at": "Time", "a.user": "User", "a.action": "Action", "a.entity": "Record",
+  "p.leaves": "Leaves", "p.movements": "Job movements", "p.reports": "Reports center",
+  "lv.annual": "Annual", "lv.sick": "Sick", "lv.emergency": "Emergency", "lv.unpaid": "Unpaid", "lv.hajj": "Hajj", "lv.maternity": "Maternity", "lv.other": "Other",
+  "ls.pending": "Pending approval", "ls.approved": "Approved", "ls.rejected": "Rejected",
+  "lv.add": "Leave request", "lv.balance": "Leave balances", "lv.list": "Leave log", "lv.entitled": "Annual entitlement", "lv.used": "Used this year", "lv.remaining": "Remaining",
+  "lv.ontoday": "On leave today", "lv.pendingk": "Pending requests", "lv.daysyear": "Approved leave days this year", "approve": "Approve", "reject": "Reject",
+  "mv.promotion": "Promotion", "mv.transfer": "Department transfer", "mv.salary": "Salary change", "mv.title": "Title change", "mv.contract": "Contract renewal", "mv.warning": "Warning", "mv.termination": "Termination", "mv.resignation": "Resignation", "mv.other": "Other",
+  "mv.add": "New movement", "files": "Attachments", "file.upload": "Upload file (PDF or image)", "file.open": "Open", "file.none": "No attachments",
+  "quick.add": "Quick add", "welcome.morning": "Good morning", "welcome.evening": "Good evening", "welcome.sub": "Here is today's HR overview",
+  "empty.title": "No data yet", "empty.desc": "Upload the staff & workers Excel file and every page and analysis fills in instantly.", "empty.go": "Upload Excel file",
+  "rep.title": "Reports center", "rep.desc": "Official reports ready to print or save as PDF with the Novotel letterhead.", "rep.open": "View report", "rep.back": "Back to reports",
+  "rep.saud": "Saudization report", "rep.saud.d": "Overall and per-department ratio and hires needed for target",
+  "rep.docs": "Expired & expiring documents", "rep.docs.d": "Every expired or expiring document, most urgent first",
+  "rep.staff": "Staff by department", "rep.staff.d": "Staff list grouped by department",
+  "rep.payroll": "Payroll sheet", "rep.payroll.d": "Basic, housing, transport, total and bank",
+  "rep.leaves": "Leave report", "rep.leaves.d": "Balances and approved leave this year",
+  "rep.labor": "Contractor workers", "rep.labor.d": "Workers by company with iqama and Ajeer status",
+  "rep.prepared": "Prepared by", "rep.date": "Date", "rep.sign": "Signature", "rep.total": "Total", "actions.view": "File",
   "login.title": "Sign in", "login.id": "ID / Iqama number", "login.pw": "Password", "login.go": "Sign in", "login.idle": "The page was locked after 30 minutes of inactivity — please sign in again",
 };
 
@@ -140,6 +174,8 @@ const F = {
   expected_salary: ["الراتب المتوقع", "Expected salary"], cv_text: ["السيرة الذاتية (نص)", "CV (text)"], ai_summary: ["تقييم الذكاء الاصطناعي", "AI evaluation"],
   occupations: ["المهن المشمولة (افصل بفاصلة)", "Covered occupations (comma separated)"], required_pct: ["النسبة المطلوبة %", "Required %"],
   effective_date: ["تاريخ التطبيق", "Effective date"],
+  leave_type: ["نوع الإجازة", "Leave type"], end_date: ["تاريخ النهاية", "End date"], days: ["عدد الأيام", "Days"],
+  move_type: ["نوع الحركة", "Movement type"], move_date: ["تاريخ الحركة", "Date"], from_value: ["من", "From"], to_value: ["إلى", "To"],
 };
 
 let lang = "ar";
