@@ -241,6 +241,7 @@ tfoot td { font-weight: 700; background: var(--surface-2); }
 .toast { position: fixed; inset-block-end: 20px; inset-inline-start: 50%; transform: translateX(-50%); background: #23234f; color: #fff; padding: 10px 18px; border-radius: 10px; z-index: 200; box-shadow: var(--shadow); }
 html[dir="rtl"] .toast { transform: translateX(50%); }
 .toast.err { background: var(--red); }
+.toast.warn { background: #b7791f; max-width: min(560px, 92vw); line-height: 1.6; }
 .drop { display: block; border: 2px dashed var(--line); border-radius: 14px; padding: 34px; text-align: center; color: var(--muted); cursor: pointer; }
 .drop.over { border-color: var(--brand); background: var(--brand-soft); }
 
@@ -381,4 +382,53 @@ tbody tr:hover .row-acts { opacity: 1; }
   .report-doc { padding: 16px; }
   .rtable { font-size: 11.5px; }
   .fab { inset-block-end: 14px; inset-inline-end: 14px; }
+}
+
+/* ===== Import report ===== */
+.imp-item { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin-top: 10px; }
+.imp-item.bad { border-color: #d9534f; }
+.imp-h { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.imp-s { margin-top: 4px; font-weight: 600; }
+.imp-c { margin: 8px 0 0; padding-inline-start: 18px; font-size: 13px; line-height: 1.8; max-height: 320px; overflow: auto; }
+@media print { .imp-c { max-height: none; overflow: visible; } }
+
+/* ===== Footer with logo (screen + every printed page) ===== */
+.site-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 28px 0 6px; padding: 14px 4px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.site-foot img { height: 26px; }
+.site-foot #footMeta { margin-inline-start: auto; }
+[data-theme="dark"] .site-foot img { filter: brightness(0) invert(1); opacity: .85; }
+.login { flex-direction: column; }
+.login-foot { display: flex; align-items: center; gap: 10px; margin-top: 18px; color: rgba(255,255,255,.75); font-size: 12.5px; }
+.login-foot img { height: 22px; }
+@media print {
+  .site-foot { position: fixed; bottom: 0; inset-inline: 0; margin: 0; padding: 6px 0 0; background: #fff; border-top: 1.5px solid #23234f; color: #444; font-size: 10px; }
+  .site-foot img { height: 20px; filter: none !important; }
+  #view { padding-bottom: 40px; }
+  @page { margin-bottom: 16mm; }
+}
+
+/* ===== Appraisal document ===== */
+.appraisal-doc .ad-info th { width: 20%; text-align: start; }
+.appraisal-doc small { font-weight: 400; }
+.ad-dec.renew b { color: #1e9e5a; } .ad-dec.not_renew b { color: #d64545; } .ad-dec.renew_conditional b { color: #c98a12; }
+.ad-sigs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 22px; }
+.ad-sig { border: 1px solid #e3e5ee; border-radius: 10px; padding: 10px; text-align: center; min-height: 140px; }
+.ad-sig-t { font-size: 12px; color: #23234f; font-weight: 700; margin-bottom: 6px; }
+.ad-sig img { max-width: 100%; height: 70px; object-fit: contain; }
+.ad-sig-empty { height: 70px; }
+@media (max-width: 640px) { .ad-sigs { grid-template-columns: 1fr; } }
+@media print { .ad-sigs, .ad-sig { break-inside: avoid; } }
+.modal.wide { width: min(1100px, 100%); }
+.dec-t.renew { color: var(--green, #1e9e5a); font-weight: 700; } .dec-t.not_renew { color: var(--red); font-weight: 700; } .dec-t.renew_conditional { color: #c98a12; font-weight: 700; }
+@media print {
+  .card:has(.tbl), .card:has(.rtable) { break-inside: auto; }
+  .tbl tr { break-inside: avoid; }
+  body.printing-modal .modal > header { display: none; }
+}
+@media print {
+  .tbl table { width: 100% !important; min-width: 0 !important; font-size: 9.5px; table-layout: auto; }
+  .tbl th, .tbl td { white-space: normal !important; padding: 4px 5px !important; word-break: normal; overflow-wrap: break-word; }
+  .row-acts, .tbl .btn { display: none !important; }
+  .tbl small { font-size: 8px; }
+  .toolbar, .chips { display: none !important; }
 }

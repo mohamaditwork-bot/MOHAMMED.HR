@@ -24,7 +24,7 @@ function cellValue(cell) {
   return cell.v;
 }
 
-function sheetRows(ws) {
+export function sheetRows(ws) {
   if (!ws || !ws["!ref"]) return [];
   const r = XLSX.utils.decode_range(ws["!ref"]);
   const out = [];

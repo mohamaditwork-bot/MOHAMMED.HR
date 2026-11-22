@@ -51,7 +51,7 @@ const AR = {
   "ai.s4": "قارن بين الأقسام في عدد الموظفين والسعودة", "ai.privacy": "يُرسل للمساعد ملخص البيانات بدون الآيبان والجوال والبريد والعنوان وتاريخ الميلاد.",
   // import
   "i.title": "استيراد ملف Excel", "i.desc": "ارفع ملف الموظفين والعمالة (نفس صيغة ملفك). يحدّث السجلات الموجودة برقم الهوية ولا يكررها.",
-  "i.drop": "اسحب الملف هنا أو اختر ملف", "i.done": "تم الاستيراد", "e.title": "تصدير البيانات", "e.desc": "نزّل أي جدول كملف Excel.",
+  "i.drop": "اسحب الملفات هنا أو اختر ملف/ملفات (تقدر ترفع كذا ملف مرة وحدة)", "i.types": "يتعرف تلقائيًا على: ملف الموظفين الرئيسي • عقود قوى • Casual • مقيم (المقيمين والتابعين) • الخروج والعودة • الإقامات المجددة • تغيير المهن • الخروج النهائي • نقل الخدمات", "i.main": "ملف الموظفين الرئيسي", "i.report": "تقرير وش تغيّر", "i.done": "تم الاستيراد", "e.title": "تصدير البيانات", "e.desc": "نزّل أي جدول كملف Excel.",
   // settings
   "set.thresholds": "حدود التنبيه (أيام قبل الانتهاء)", "set.iqama": "الإقامة", "set.contracts": "العقود", "set.docs": "باقي الوثائق",
   "set.autorenew": "العقود تتجدد تلقائيًا كل سنة", "set.emails": "إيميلات التنبيه (افصل بفاصلة)", "set.test": "أرسل التنبيه الآن",
@@ -62,10 +62,10 @@ const AR = {
   // audit
   "a.at": "الوقت", "a.user": "المستخدم", "a.action": "الإجراء", "a.entity": "السجل",
   // idle / login
-  "p.leaves": "الإجازات", "p.movements": "الحركات الوظيفية", "p.reports": "مركز التقارير",
+  "p.appraisals": "التقييم وتجديد العقود", "apr.new": "تقييم جديد", "apr.none": "لا توجد تقييمات", "apr.period": "فترة التقييم", "apr.manager": "المدير المباشر", "apr.mtitle": "منصب المدير", "apr.score": "النتيجة", "apr.decision": "قرار العقد", "apr.sendmgr": "رابط المدير", "apr.sendemp": "رابط الموظف", "apr.view": "عرض / PDF", "apr.pdf": "طباعة / حفظ PDF", "apr.copy": "نسخ الرابط", "apr.copied": "تم النسخ", "apr.email": "إيميل", "apr.open": "فتح", "apr.renew": "رابط جديد", "apr.expires": "صلاحية الرابط حتى", "apr.linkhelp": "أرسل الرابط — يفتح بدون تسجيل دخول، ويوقّع بإصبعه من الجوال. الرابط شخصي وسري.", "apr.create": "إنشاء وإرسال الرابط", "apr.flow": "الخطوات: المدير يقيّم ويحدد قرار تجديد العقد ويوقّع ← بعدها رابط للموظف يطّلع ويوقّع ← يرجع النموذج محفوظ هنا وفي ملف الموظف مع PDF.", "apr.desc": "تقييم أداء وقرار تجديد عقد بتوقيع إلكتروني من المدير والموظف", "apr.t.all": "الكل", "apr.t.open": "قيد التوقيع", "apr.t.done": "مكتملة", "p.leaves": "الإجازات", "p.movements": "الحركات الوظيفية", "p.reports": "مركز التقارير",
   "lv.annual": "سنوية", "lv.sick": "مرضية", "lv.emergency": "اضطرارية", "lv.unpaid": "بدون راتب", "lv.hajj": "حج", "lv.maternity": "أمومة", "lv.other": "أخرى",
   "ls.pending": "بانتظار الموافقة", "ls.approved": "معتمدة", "ls.rejected": "مرفوضة",
-  "lv.add": "طلب إجازة", "lv.balance": "أرصدة الإجازات", "lv.list": "سجل الإجازات", "lv.entitled": "الاستحقاق السنوي", "lv.used": "المستخدم هذه السنة", "lv.remaining": "المتبقي",
+  "lv.add": "طلب إجازة", "lv.visa": "تأشيرة الخروج والعودة", "lv.visaok": "التأشيرة تغطي", "lv.visano": "التأشيرة لا تغطي", "lv.balance": "أرصدة الإجازات", "lv.list": "سجل الإجازات", "lv.entitled": "الاستحقاق السنوي", "lv.used": "المستخدم هذه السنة", "lv.remaining": "المتبقي",
   "lv.ontoday": "في إجازة اليوم", "lv.pendingk": "طلبات بانتظار الموافقة", "lv.daysyear": "أيام إجازة معتمدة هذه السنة", "approve": "اعتماد", "reject": "رفض",
   "mv.promotion": "ترقية", "mv.transfer": "نقل قسم", "mv.salary": "تعديل راتب", "mv.title": "تغيير مسمى", "mv.contract": "تجديد عقد", "mv.warning": "إنذار", "mv.termination": "إنهاء خدمة", "mv.resignation": "استقالة", "mv.other": "أخرى",
   "mv.add": "حركة جديدة", "files": "المرفقات", "file.upload": "رفع ملف (PDF أو صورة)", "file.open": "فتح", "file.none": "لا توجد مرفقات",
@@ -124,17 +124,17 @@ const EN = {
   "ai.s1": "Summarize today's HR situation", "ai.s2": "Which documents must be renewed this week?", "ai.s3": "How can we raise Saudization in Food & Beverage?",
   "ai.s4": "Compare departments by headcount and Saudization", "ai.privacy": "The assistant receives a data summary without IBANs, phones, emails, addresses or birth dates.",
   "i.title": "Import Excel file", "i.desc": "Upload the staff & workers workbook (same format as yours). Existing records are updated by ID number, never duplicated.",
-  "i.drop": "Drop the file here or choose a file", "i.done": "Import finished", "e.title": "Export data", "e.desc": "Download any table as an Excel file.",
+  "i.drop": "Drop files here or choose one or more files", "i.types": "Auto-detects: main staff workbook • Qiwa contracts • Casual list • Muqeem residents & dependents • exit/re-entry • renewed iqamas • profession changes • final exit • service transfers", "i.main": "Main staff workbook", "i.report": "What changed", "i.done": "Import finished", "e.title": "Export data", "e.desc": "Download any table as an Excel file.",
   "set.thresholds": "Alert thresholds (days before expiry)", "set.iqama": "Iqama", "set.contracts": "Contracts", "set.docs": "Other documents",
   "set.autorenew": "Contracts renew automatically every year", "set.emails": "Alert emails (comma separated)", "set.test": "Send alert now",
   "set.email.off": "Email is not enabled yet: add RESEND_API_KEY in the hosting settings.", "set.hotel": "Organization name",
   "set.daily": "A daily alert is sent automatically at 7 AM (Saudi time) for every expired or expiring document.",
   "u.id": "ID number (username)", "u.name": "Name", "u.role": "Role", "u.pw": "Password (empty = ID number)", "u.add": "New user",
   "a.at": "Time", "a.user": "User", "a.action": "Action", "a.entity": "Record",
-  "p.leaves": "Leaves", "p.movements": "Job movements", "p.reports": "Reports center",
+  "p.appraisals": "Appraisals & renewals", "apr.new": "New appraisal", "apr.none": "No appraisals", "apr.period": "Period", "apr.manager": "Line manager", "apr.mtitle": "Manager title", "apr.score": "Score", "apr.decision": "Contract decision", "apr.sendmgr": "Manager link", "apr.sendemp": "Employee link", "apr.view": "View / PDF", "apr.pdf": "Print / save PDF", "apr.copy": "Copy link", "apr.copied": "Copied", "apr.email": "Email", "apr.open": "Open", "apr.renew": "New link", "apr.expires": "Link valid until", "apr.linkhelp": "Send the link — it opens without login and can be signed with a finger on a phone. The link is private.", "apr.create": "Create & send link", "apr.flow": "Flow: the manager rates, decides on renewal and signs → the employee reviews and signs → the signed form is saved here and in the employee file, with PDF.", "apr.desc": "Performance appraisal and contract renewal with e-signatures from manager and employee", "apr.t.all": "All", "apr.t.open": "Awaiting signature", "apr.t.done": "Completed", "p.leaves": "Leaves", "p.movements": "Job movements", "p.reports": "Reports center",
   "lv.annual": "Annual", "lv.sick": "Sick", "lv.emergency": "Emergency", "lv.unpaid": "Unpaid", "lv.hajj": "Hajj", "lv.maternity": "Maternity", "lv.other": "Other",
   "ls.pending": "Pending approval", "ls.approved": "Approved", "ls.rejected": "Rejected",
-  "lv.add": "Leave request", "lv.balance": "Leave balances", "lv.list": "Leave log", "lv.entitled": "Annual entitlement", "lv.used": "Used this year", "lv.remaining": "Remaining",
+  "lv.add": "Leave request", "lv.visa": "Exit/re-entry visa", "lv.visaok": "visa covers", "lv.visano": "visa does not cover", "lv.balance": "Leave balances", "lv.list": "Leave log", "lv.entitled": "Annual entitlement", "lv.used": "Used this year", "lv.remaining": "Remaining",
   "lv.ontoday": "On leave today", "lv.pendingk": "Pending requests", "lv.daysyear": "Approved leave days this year", "approve": "Approve", "reject": "Reject",
   "mv.promotion": "Promotion", "mv.transfer": "Department transfer", "mv.salary": "Salary change", "mv.title": "Title change", "mv.contract": "Contract renewal", "mv.warning": "Warning", "mv.termination": "Termination", "mv.resignation": "Resignation", "mv.other": "Other",
   "mv.add": "New movement", "files": "Attachments", "file.upload": "Upload file (PDF or image)", "file.open": "Open", "file.none": "No attachments",
@@ -175,7 +175,7 @@ const F = {
   occupations: ["المهن المشمولة (افصل بفاصلة)", "Covered occupations (comma separated)"], required_pct: ["النسبة المطلوبة %", "Required %"],
   effective_date: ["تاريخ التطبيق", "Effective date"],
   leave_type: ["نوع الإجازة", "Leave type"], end_date: ["تاريخ النهاية", "End date"], days: ["عدد الأيام", "Days"],
-  move_type: ["نوع الحركة", "Movement type"], move_date: ["تاريخ الحركة", "Date"], from_value: ["من", "From"], to_value: ["إلى", "To"],
+  move_type: ["نوع الحركة", "Movement type"], move_date: ["تاريخ الحركة", "Date"], outside_ksa: ["خارج المملكة؟ (ينشئ/يطابق تأشيرة خروج وعودة)", "Outside KSA? (syncs exit/re-entry visa)"], from_value: ["من", "From"], to_value: ["إلى", "To"],
 };
 
 let lang = "ar";

@@ -7,6 +7,8 @@ import {
 import { getDb } from "./db.js";
 import { TABLES, coerce } from "./schema.js";
 import { importWorkbook } from "./importer.js";
+import { detectWorkbook, applyUpdateFile } from "./updates.js";
+import { signRoute, appraisalsRoute } from "./appraisals.js";
 import { askClaude, aiConfigured, buildContext } from "./ai.js";
 import { sendAlertEmail, emailConfigured } from "./alerts.js";
 import { DEFAULT_SETTINGS } from "../public/js/logic.js";
@@ -60,6 +62,9 @@ async function loadAll(env) {
   const out = {};
   for (const [t, cfg] of Object.entries(TABLES)) out[t] = clean(await db.query(`SELECT * FROM ${t} ORDER BY ${cfg.order}`));
   out.attachments = clean(await db.query("SELECT id, employee_id, document_id, file_name, mime, size, uploaded_by, created_at FROM attachments ORDER BY id DESC"));
+  out.appraisals = clean(await db.query(
+    `SELECT id, employee_id, period, manager_name, manager_title, status, total, grade, decision, decision_note,
+            manager_signed_at, employee_signed_at, token_mgr, token_emp, expires_at, created_by, created_at FROM appraisals ORDER BY created_at DESC`));
   return out;
 }
 
@@ -185,7 +190,8 @@ async function rows(req, env) {
         cols.map((c) => data[c])
       );
       await audit(env, u, "create", table, out[0].id, data);
-      return json({ row: clean(out)[0] });
+      const warning = table === "leaves" ? await syncLeaveVisa(db, out[0]) : null;
+      return json({ row: clean(out)[0], warning });
     } catch (e) {
       return json({ error: dbError(e) }, 400);
     }
@@ -205,7 +211,8 @@ async function rows(req, env) {
       );
       if (!out.length) return json({ error: "السجل غير موجود" }, 404);
       await audit(env, u, "update", table, id, data);
-      return json({ row: clean(out)[0] });
+      const warning = table === "leaves" ? await syncLeaveVisa(db, out[0]) : null;
+      return json({ row: clean(out)[0], warning });
     } catch (e) {
       return json({ error: dbError(e) }, 400);
     }
@@ -274,6 +281,28 @@ async function files(req, env) {
   return json({ ok: true, id: out[0].id });
 }
 
+// A leave spent outside the Kingdom needs an exit/re-entry visa covering the same dates.
+async function syncLeaveVisa(db, leave) {
+  if (!leave.outside_ksa || leave.status === "rejected") return null;
+  const iso = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : v ? String(v).slice(0, 10) : null);
+  const start = iso(leave.start_date), end = iso(leave.end_date);
+  const doc = (await db.query("SELECT * FROM documents WHERE employee_id = $1 AND doc_type = 'exit_reentry'", [leave.employee_id]))[0];
+  const dIssue = iso(doc?.issue_date), dExp = iso(doc?.expiry_date);
+  if (doc && dIssue === start && dExp === end) return null;
+  const covered = doc && dIssue && dExp && dIssue <= start && dExp >= end;
+  if (covered) return null;
+  const old = doc ? `${dIssue || "—"} ← ${dExp || "—"}` : null;
+  await db.query(
+    `INSERT INTO documents (employee_id, doc_type, issue_date, expiry_date, details, notes) VALUES ($1,'exit_reentry',$2,$3,$4,$5)
+     ON CONFLICT (employee_id, doc_type) DO UPDATE SET issue_date = EXCLUDED.issue_date, expiry_date = EXCLUDED.expiry_date,
+       details = COALESCE(documents.details, '{}'::jsonb) || EXCLUDED.details, notes = EXCLUDED.notes, updated_at = now()`,
+    [leave.employee_id, start, end, JSON.stringify({ leave_id: leave.id }), "مطابقة لإجازة خارج المملكة — تأكد من إصدارها في مقيم"]
+  );
+  return old
+    ? `تأشيرة الخروج والعودة الحالية (${old}) ما تغطي الإجازة — تم تعديلها لتطابق الإجازة ${start} ← ${end}. تأكد من تمديدها/إصدارها في مقيم.`
+    : `ما فيه تأشيرة خروج وعودة — تم إنشاؤها بتاريخ الإجازة ${start} ← ${end}. لا تنسى إصدارها في مقيم.`;
+}
+
 async function importXlsx(req, env) {
   const u = await requireUser(env, req, { role: "editor" });
   if (u instanceof Response) return u;
@@ -284,6 +313,13 @@ async function importXlsx(req, env) {
   const db = await getDb(env);
   let result;
   try {
+    const { wb, type } = detectWorkbook(buf);
+    if (!type) return json({ error: "ما قدرت أتعرف على نوع الملف — تأكد إنه من قوى/مقيم/Casual أو ملف الموظفين الرئيسي" }, 400);
+    if (type.key !== "main") {
+      const rep = await applyUpdateFile(db, wb, type);
+      await audit(env, u, "import", type.key, null, { summary: rep.summary, changes: rep.changes.length });
+      return json({ ok: true, update: rep });
+    }
     result = await importWorkbook(db, buf);
   } catch (e) {
     console.error(e);
@@ -388,6 +424,13 @@ async function cron(req, env) {
   return json(out);
 }
 
+async function appraisals(req, env) {
+  const u = await requireUser(env, req, { role: req.method === "GET" ? "viewer" : "editor" });
+  if (u instanceof Response) return u;
+  return appraisalsRoute(req, env, u, audit);
+}
+const sign = (req, env) => signRoute(req, env, audit);
+
 const ROUTES = {
   "/api/login": { POST: login },
   "/api/logout": { POST: async () => json({ ok: true }, 200, { "set-cookie": clearCookie() }) },
@@ -403,11 +446,13 @@ const ROUTES = {
   "/api/ai": { POST: ai },
   "/api/alerts": { POST: alertsNow },
   "/api/cron": { GET: cron },
+  "/api/appraisals": { GET: appraisals, POST: appraisals, PUT: appraisals, DELETE: appraisals },
+  "/api/sign": { GET: sign, POST: sign },
 };
 
 // Handle one API request. `path` is the API path such as "/api/login".
 export async function handle(req, env, path) {
-  const authed = !["/api/login", "/api/logout", "/api/cron"].includes(path);
+  const authed = !["/api/login", "/api/logout", "/api/cron", "/api/sign"].includes(path);
   const route = ROUTES[path];
   let res;
   if (!route) res = json({ error: "غير موجود" }, 404);
