@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS = {
   contracts: 80,
   docs: 30,
   contract_autorenew: true,
+  contract_renew_days: 75,
   saudization_target: null,
   alert_emails: "",
   alert_days: [30, 14, 7, 1],
@@ -53,10 +54,6 @@ export function isSaudi(nationality) {
 export function docStatus(doc, settings = DEFAULT_SETTINGS, today = todayUTC()) {
   let expiry = toISO(doc.expiry_date);
   if (!expiry) return { status: "none", days: null, expiry: null };
-  if (doc.doc_type === "contract" && settings.contract_autorenew) {
-    let guard = 0;
-    while (daysUntil(expiry, today) < 0 && guard++ < 60) expiry = addYears(expiry, 1);
-  }
   const days = daysUntil(expiry, today);
   const thr = Number(settings[(DOC_TYPES[doc.doc_type] || DOC_TYPES.other).thr]) || 30;
   // An expired exit/re-entry visa only matters while the holder is still abroad.
@@ -125,4 +122,15 @@ export function ruleCoverage(rule, staff) {
   // MHRSD method: required Saudis = workers in the profession × rate, rounded to the nearest whole (0.5 up).
   const required = rule.required_pct === null || rule.required_pct === undefined || rule.required_pct === "" ? null : Math.round((r.total * Number(rule.required_pct)) / 100);
   return { ...r, members, required, missing: required === null ? 0 : Math.max(0, required - r.saudi) };
+}
+
+// Why an employee's contract should NOT be renewed (null = renew normally).
+export function leavingReason(contractDoc, appraisals = []) {
+  const det = (typeof contractDoc?.details === "string" ? JSON.parse(contractDoc.details || "{}") : contractDoc?.details) || {};
+  if (det.no_renew) return det.no_renew_reason ? `مغادر — ${det.no_renew_reason}` : "مغادر (محدد يدويًا)";
+  if (det.renewal?.recommendation === "N") return "المدير لا يوصي بالتجديد" + (det.renewal.comment ? ` — ${det.renewal.comment}` : "");
+  if (det.renewal?.employee_wish === "N") return "الموظف لا يرغب بالتجديد";
+  const last = appraisals.find((a) => a.decision);
+  if (last?.decision === "not_renew") return "قرار التقييم: عدم التجديد";
+  return null;
 }
