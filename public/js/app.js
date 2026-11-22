@@ -54,6 +54,9 @@ function toast(msg, err = false, ms = 2600) {
 
 async function reload() {
   D = await api("/api/all");
+  // Used / expired exit-re-entry visas are history: keep them out of every screen.
+  const today = new Date().toISOString().slice(0, 10);
+  D.documents = D.documents.filter((d) => !(d.doc_type === "exit_reentry" && d.expiry_date && d.expiry_date < today));
   EMP = new Map(D.employees.map((e) => [e.id, e]));
 }
 
@@ -1044,34 +1047,61 @@ PAGES.platforms = () => {
 
 // ================= ASSISTANT =================
 const chatLog = [];
+const AI_QUICK = [["exec", "📊"], ["saud", "🇸🇦"], ["docs", "⏰"], ["contracts", "📝"], ["leaves", "✈️"], ["letter", "✉️"]];
+const saveChat = () => { try { sessionStorage.setItem("hr_chat", JSON.stringify(chatLog.slice(-30))); } catch {} };
 PAGES.assistant = () => {
-  $("#view").innerHTML = `${head(t("ai.title"), t("ai.privacy"))}
-    <div class="card chat">
-      ${FEATURES.ai ? "" : `<div class="note">${esc(t("ai.off"))}</div>`}
-      <div class="log" id="log"></div>
-      <div class="suggest">${["ai.s1", "ai.s2", "ai.s3", "ai.s4"].map((k) => `<button class="chip" data-s="${k}">${esc(t(k))}</button>`).join("")}</div>
-      <form id="cf"><input class="input" id="cq" placeholder="${esc(t("ai.placeholder"))}" autocomplete="off" ${FEATURES.ai ? "" : "disabled"}><button class="btn" ${FEATURES.ai ? "" : "disabled"}>${esc(t("ai.send"))}</button></form>
+  if (!chatLog.length) { try { chatLog.push(...JSON.parse(sessionStorage.getItem("hr_chat") || "[]")); } catch {} }
+  const on = FEATURES.ai;
+  $("#view").innerHTML = `
+    <div class="ai-shell">
+      <div class="ai-top">
+        <div class="ai-id"><div class="ai-orb">✦</div><div><b>${esc(t("ai.title"))}</b><span class="ai-status ${on ? "on" : "off"}">● ${esc(t(on ? "ai.online" : "ai.offline"))}</span></div></div>
+        <div class="ai-actions">${chatLog.length ? `<button class="btn ghost sm" id="aiNew">＋ ${esc(t("ai.new"))}</button>` : ""}${!on && isAdmin() ? `<a class="btn sm" href="#settings">🔑 ${esc(t("ai.enable"))}</a>` : ""}</div>
+      </div>
+      ${on ? "" : `<div class="note">${esc(t("ai.off"))}</div>`}
+      <div class="ai-log" id="log"></div>
+      <div class="ai-quick" id="quick">${AI_QUICK.map(([k, i]) => `<button class="ai-q" data-q="${k}" ${on ? "" : "disabled"}><span>${i}</span>${esc(t("ai.q." + k))}</button>`).join("")}</div>
+      <form id="cf" class="ai-input"><textarea class="input" id="cq" rows="1" placeholder="${esc(t("ai.placeholder"))}" ${on ? "" : "disabled"}></textarea><button class="btn ai-send" ${on ? "" : "disabled"} aria-label="${esc(t("ai.send"))}">➤</button></form>
+      <p class="muted small ai-privacy">🔒 ${esc(t("ai.privacy"))}</p>
     </div>`;
   const log = $("#log");
   const paint = () => {
-    log.innerHTML = chatLog.map((m) => `<div class="bubble ${m.role === "user" ? "user" : "ai"}">${m.role === "user" ? esc(m.content) : md(m.content)}</div>`).join("") +
-      (paint.busy ? `<div class="bubble ai muted"><span class="dots">${esc(t("ai.thinking"))}</span></div>` : "");
+    log.innerHTML = (chatLog.length ? "" : `<div class="ai-welcome"><div class="ai-orb big">✦</div><h2>${esc(t("ai.hello").replace("{n}", (ME.name || "").split(" ")[0]))}</h2><p>${esc(t("ai.intro"))}</p></div>`) +
+      chatLog.map((m, i) => m.role === "user"
+        ? `<div class="msg-row user"><div class="bubble user">${esc(m.content)}</div></div>`
+        : `<div class="msg-row ai"><div class="ai-orb sm">✦</div><div class="bubble ai"><div class="md">${md(m.content)}</div>
+            <div class="b-acts no-print"><button class="link" data-copy="${i}">⧉ ${esc(t("ai.copy"))}</button><button class="link" data-print="${i}">🖨 ${esc(t("print"))}</button></div></div></div>`).join("") +
+      (paint.busy ? `<div class="msg-row ai"><div class="ai-orb sm spin">✦</div><div class="bubble ai"><span class="typing"><i></i><i></i><i></i></span> <span class="muted small">${esc(t("ai.thinking"))}</span></div></div>` : "");
     log.scrollTop = log.scrollHeight;
+    $$("[data-copy]", log).forEach((b) => b.onclick = () => { navigator.clipboard?.writeText(chatLog[+b.dataset.copy].content); toast(t("ai.copied")); });
+    $$("[data-print]", log).forEach((b) => b.onclick = () => {
+      const m = modal(`<header><h3>✦ ${esc(t("ai.title"))}</h3><button class="x" data-close>×</button></header><div class="body"><div class="report-doc"><div class="report-head"><img src="/logo-navy.png" alt=""><div><b>${esc(t("ai.title"))}</b><span>${esc(settings()[L() === "en" ? "hotel_name_en" : "hotel_name_ar"])}</span></div><div class="rmeta">${esc(fmtDate(new Date().toISOString()))}<br>${esc(ME.name)}</div></div><div class="md">${md(chatLog[+b.dataset.print].content)}</div></div></div>`, "wide");
+      printModal(m);
+    });
   };
   const send = async (text) => {
     if (!text.trim() || paint.busy || !FEATURES.ai) return;
     chatLog.push({ role: "user", content: text.trim() });
-    paint.busy = true; paint();
+    paint.busy = true; paint(); saveChat();
     try {
       const out = await api("/api/ai", { method: "POST", body: { mode: "chat", lang: L(), messages: chatLog } });
       chatLog.push({ role: "assistant", content: out.text || "—" });
     } catch (e) {
       chatLog.push({ role: "assistant", content: "⚠ " + e.message });
     }
-    paint.busy = false; paint();
+    paint.busy = false; paint(); saveChat();
+    if (chatLog.length === 2) route();
   };
-  $("#cf").addEventListener("submit", (e) => { e.preventDefault(); const q = $("#cq").value; $("#cq").value = ""; send(q); });
-  $$("[data-s]").forEach((b) => b.addEventListener("click", () => send(t(b.dataset.s))));
+  const q = $("#cq");
+  const grow = () => { q.style.height = "auto"; q.style.height = Math.min(180, q.scrollHeight) + "px"; };
+  q.addEventListener("input", grow);
+  q.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#cf").requestSubmit(); } });
+  $("#cf").addEventListener("submit", (e) => { e.preventDefault(); const v = q.value; q.value = ""; grow(); send(v); });
+  $$("[data-q]").forEach((b) => b.addEventListener("click", () => {
+    const p = t("ai.q." + b.dataset.q + ".p");
+    if (b.dataset.q === "letter") { q.value = p; q.focus(); grow(); } else send(p);
+  }));
+  $("#aiNew")?.addEventListener("click", () => { chatLog.length = 0; saveChat(); route(); });
   paint();
 };
 
@@ -1148,7 +1178,32 @@ PAGES.settings = () => {
         <textarea class="input" id="sE" dir="ltr" placeholder="hr@example.com, manager@example.com">${esc(st.alert_emails || "")}</textarea>
         <div style="margin-top:10px"><button class="btn ghost" id="sTest" ${FEATURES.email ? "" : "disabled"}>${esc(t("set.test"))}</button> <span class="msg" id="sTm"></span></div></div>
     </div>
-    <button class="btn" id="sSave">${esc(t("save"))}</button> <span class="msg" id="sm"></span>`;
+    <button class="btn" id="sSave">${esc(t("save"))}</button> <span class="msg" id="sm"></span>
+    ${isAdmin() ? `<div class="card keys-card" style="margin-top:18px"><h3>🔑 ${esc(t("k.title"))}</h3><p class="muted" style="margin-top:0">${esc(t("k.desc"))}</p>
+      <div class="key-row"><div class="key-h"><b>✦ ${esc(t("k.ai"))}</b> <span id="kAiSt"></span></div>
+        <ol class="key-steps"><li>${t("k.ai.1")}</li><li>${t("k.ai.2")}</li><li>${t("k.ai.3")}</li></ol>
+        <div class="key-in"><input class="input" type="password" id="kAi" placeholder="sk-ant-..." dir="ltr" autocomplete="off"><button class="btn" id="kAiSave">${esc(t("k.save"))}</button><button class="btn ghost sm" id="kAiDel">${esc(t("k.remove"))}</button></div><p class="msg" id="kAiMsg"></p></div>
+      <div class="key-row"><div class="key-h"><b>✉ ${esc(t("k.email"))}</b> <span id="kReSt"></span></div>
+        <ol class="key-steps"><li>${t("k.re.1")}</li><li>${t("k.re.2")}</li></ol>
+        <div class="key-in"><input class="input" type="password" id="kRe" placeholder="re_..." dir="ltr" autocomplete="off"><button class="btn" id="kReSave">${esc(t("k.save"))}</button><button class="btn ghost sm" id="kReDel">${esc(t("k.remove"))}</button></div><p class="msg" id="kReMsg"></p></div>
+    </div>` : ""}`;
+  if (isAdmin()) {
+    const pill = (src) => src ? `<span class="pill s-ok">✔ ${esc(t(src === "hosting" ? "k.on.host" : "k.on.site"))}</span>` : `<span class="pill s-expired">${esc(t("k.off"))}</span>`;
+    api("/api/settings").then((o) => { $("#kAiSt").innerHTML = pill(o.keys?.ai); $("#kReSt").innerHTML = pill(o.keys?.email); }).catch(() => {});
+    const saveKey = async (field, inp, msg, value) => {
+      const m = $(msg); m.className = "msg"; m.textContent = t("k.checking");
+      try {
+        await api("/api/secrets", { method: "PUT", body: { [field]: value } });
+        $(inp).value = ""; m.className = "msg ok"; m.textContent = value ? "✔ " + t("k.saved") : t("k.removed");
+        const me = await api("/api/me"); FEATURES = me.features || FEATURES; route();
+        toast(value ? "✔ " + t("k.saved") : t("k.removed"));
+      } catch (e) { m.className = "msg err"; m.textContent = e.message; }
+    };
+    $("#kAiSave").onclick = () => $("#kAi").value.trim() && saveKey("anthropic_key", "#kAi", "#kAiMsg", $("#kAi").value.trim());
+    $("#kReSave").onclick = () => $("#kRe").value.trim() && saveKey("resend_key", "#kRe", "#kReMsg", $("#kRe").value.trim());
+    $("#kAiDel").onclick = () => confirm(t("confirm.delete")) && saveKey("anthropic_key", "#kAi", "#kAiMsg", "");
+    $("#kReDel").onclick = () => confirm(t("confirm.delete")) && saveKey("resend_key", "#kRe", "#kReMsg", "");
+  }
   $("#sSave").addEventListener("click", async () => {
     try {
       await api("/api/settings", { method: "PUT", body: { iqama: $("#sI").value, contracts: $("#sC").value, docs: $("#sD").value, saudization_target: $("#sT").value, contract_autorenew: $("#sR").checked, contract_renew_days: $("#sRD").value, alert_emails: $("#sE").value, hotel_name_ar: $("#sHA").value, hotel_name_en: $("#sHE").value } });

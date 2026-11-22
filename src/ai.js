@@ -2,7 +2,7 @@
 // summary of the HR data (no IBANs, phones, emails, addresses or birth dates)
 // and sends it with the user's question.
 import Anthropic from "@anthropic-ai/sdk";
-import { DOC_TYPES, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, docStatus } from "../public/js/logic.js";
+import { DOC_TYPES, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, docStatus, leavingReason } from "../public/js/logic.js";
 
 const MODEL = "claude-opus-5-5";
 
@@ -11,7 +11,7 @@ export function aiConfigured(env) {
 }
 
 // Text summary of the database for the model.
-export function buildContext({ employees, documents, jobs, applicants, rules, tasks }, settings) {
+export function buildContext({ employees, documents, jobs, applicants, rules, tasks, leaves = [], appraisals = [] }, settings) {
   const active = employees.filter((e) => e.status !== "left");
   const staff = active.filter((e) => e.kind === "staff");
   const labor = active.filter((e) => e.kind === "labor");
@@ -31,11 +31,42 @@ export function buildContext({ employees, documents, jobs, applicants, rules, ta
     lines.push("\n## Localization rules entered by HR");
     for (const rule of rules) {
       const c = ruleCoverage(rule, staff);
-      lines.push(`- ${rule.name}: required ${rule.required_pct ?? "?"}%, covered staff ${c.total}, Saudi ${c.saudi} (${c.pct.toFixed(0)}%). Occupations: ${rule.occupations || "-"}. Source: ${rule.source || "-"}`);
+      if (!c.total) continue;
+      lines.push(`- ${rule.name}: required ${rule.required_pct ?? "?"}% from ${rule.effective_date || "-"}, workers in profession ${c.total}, Saudi ${c.saudi}, Saudis required ${c.required ?? "-"}, MISSING ${c.missing}. Professions: ${rule.occupations || "-"}`);
     }
+    const none = rules.filter((r) => !ruleCoverage(r, staff).total).map((r) => r.name);
+    if (none.length) lines.push(`- Professions in the decision that the hotel currently has no staff in: ${none.join("; ")}`);
+    lines.push(`Source of rules: ${[...new Set(rules.map((r) => r.source).filter(Boolean))].join("; ")}. Method: required Saudis = workers in profession × rate, rounded to nearest whole number.`);
   }
 
-  const alerts = buildAlerts(active, documents, settings);
+  const today = new Date().toISOString().slice(0, 10);
+  const in90 = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
+  const contracts = documents.filter((d) => d.doc_type === "contract" && active.some((e) => e.id === d.employee_id));
+  const byId = new Map(active.map((e) => [e.id, e]));
+  const leavers = contracts.map((d) => ({ d, why: leavingReason(d, appraisals.filter((a) => a.employee_id === d.employee_id && a.status !== "manager")) })).filter((x) => x.why);
+  lines.push(`\n## Contracts — auto-renewed for one year ${settings.contract_renew_days || 75} days before the end unless the person is leaving`);
+  for (const { d, why } of leavers) lines.push(`- LEAVING: ${byId.get(d.employee_id)?.name_ar} — contract ends ${String(d.expiry_date).slice(0, 10)} — ${why}`);
+  const soon = contracts.filter((d) => d.expiry_date && String(d.expiry_date).slice(0, 10) <= in90).length;
+  lines.push(`- Contracts ending within 90 days: ${soon}`);
+  const renewedNow = contracts.filter((d) => (d.details?.renewals || []).length).length;
+  lines.push(`- Contracts already renewed by the system: ${renewedNow}`);
+
+  const onLeave = leaves.filter((l) => l.status === "approved" && String(l.start_date) <= today && String(l.end_date) >= today && byId.has(l.employee_id));
+  const upcoming = leaves.filter((l) => l.status !== "rejected" && String(l.start_date) > today && byId.has(l.employee_id));
+  const pending = leaves.filter((l) => l.status === "pending" && byId.has(l.employee_id));
+  lines.push(`\n## Leaves: on leave today ${onLeave.length}, upcoming ${upcoming.length}, pending approval ${pending.length}`);
+  for (const l of [...onLeave, ...upcoming].slice(0, 30)) lines.push(`- ${byId.get(l.employee_id).name_ar}: ${l.leave_type} ${String(l.start_date).slice(0, 10)} → ${String(l.end_date).slice(0, 10)}${l.outside_ksa ? " (outside KSA)" : ""} [${l.status}]`);
+  const outside = active.filter((e) => e.platform?.outside_ksa === "نعم");
+  if (outside.length) lines.push(`Outside KSA now (Muqeem): ${outside.map((e) => e.name_ar).join("، ")}`);
+  const visas = documents.filter((d) => d.doc_type === "exit_reentry" && d.expiry_date && String(d.expiry_date).slice(0, 10) >= today && byId.has(d.employee_id));
+  for (const v of visas) lines.push(`- Valid exit/re-entry visa: ${byId.get(v.employee_id).name_ar} until ${String(v.expiry_date).slice(0, 10)}`);
+
+  if (appraisals.length) {
+    lines.push(`\n## Performance appraisals (${appraisals.length})`);
+    for (const a of appraisals.slice(0, 40)) lines.push(`- ${byId.get(a.employee_id)?.name_ar || "?"}: ${a.status}${a.total != null ? `, score ${a.total}% (${a.grade})` : ""}${a.decision ? `, contract decision ${a.decision}` : ""}`);
+  }
+
+  const alerts = buildAlerts(active, documents.filter((d) => !(d.doc_type === "exit_reentry" && d.expiry_date && String(d.expiry_date).slice(0, 10) < new Date().toISOString().slice(0, 10))), settings);
   lines.push(`\n## Documents expired or near expiry (${alerts.length})`);
   for (const a of alerts.slice(0, 80)) {
     lines.push(`- ${a.employee.name_ar} (${a.employee.kind === "labor" ? "contractor " + (a.employee.company || "") : a.employee.department || ""}): ${DOC_TYPES[a.doc.doc_type]?.en || a.doc.doc_type} ${a.status === "expired" ? "EXPIRED" : "expires"} ${a.expiry} (${a.days} days)`);
@@ -64,11 +95,13 @@ export function buildContext({ employees, documents, jobs, applicants, rules, ta
 }
 
 const SYSTEM = `You are the HR assistant inside the HR control panel of a hotel in Saudi Arabia.
-You help the HR team understand and act on their data: Saudization (Nitaqat), document expiries (iqama, passport, work permits, health certificates, contracts, Ajeer), recruitment and workforce analysis.
+You help the HR team understand and act on their data: Saudization (Nitaqat and profession localization), document expiries (iqama, passport, work permits, health certificates, contracts, Ajeer), contract renewals and leavers, leaves and travel, performance appraisals, recruitment and workforce analysis.
 Rules:
 - Answer in the user's language (Arabic or English). Use clear headings and short bullet points.
 - Base every number on the data snapshot you are given. If the data does not contain something, say so plainly instead of guessing.
-- The Saudization percentage in the data is an internal ratio. Do not state official government targets unless they appear in the localization rules entered by HR; you may describe general approaches but say they must be checked against current MHRSD/Qiwa rules.
+- Localization rules in the data come from the official MHRSD + Ministry of Tourism decision (41 tourism professions, 3 phases). Use them with their numbers. For the overall Nitaqat band of the hotel, say it must be checked in Qiwa.
+- Be a senior HR advisor: lead with the answer, then the numbers, then concrete next steps (who, what, by when). Use tables when comparing people or numbers.
+- When asked to draft letters or messages, write them ready to send in formal Arabic (or English if asked), with the hotel name.
 - Give practical, prioritized recommendations (what to renew first, which roles to localize, which applicants to move forward).
 - Keep personal data to what the question needs.`;
 

@@ -3,6 +3,7 @@
 // the changes and returns a short report of what changed.
 import * as XLSXns from "xlsx";
 import { sheetRows } from "./parse.js";
+import { toTrash } from "./trash.js";
 
 const XLSX = XLSXns.SSF ? XLSXns : XLSXns.default;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -195,9 +196,10 @@ H.casual = async (db, wb) => {
   for (const w of left) {
     const e = w.iqama && !stillActive.has(w.iqama) && map.get(w.iqama);
     if (e && e.status !== "left") {
-      await db.query("UPDATE employees SET status = 'left', notes = COALESCE(notes,'') || $1, updated_at = now() WHERE id = $2", [` | غادر (ملف Casual): ${w.reason || ""}`, e.id]);
+      await toTrash(db, "employees", e.id, { name: "استيراد Casual — غادر" });
+      await db.query("DELETE FROM employees WHERE id = $1", [e.id]);
       gone++;
-      out.push(`➖ غادر: ${nm(e)} (${w.iqama})${w.reason ? " — " + w.reason : ""}`);
+      out.push(`➖ غادر وانشال من النظام (محفوظ في السلة): ${nm(e)} (${w.iqama})${w.reason ? " — " + w.reason : ""}`);
     }
   }
   return { summary: `${active.length} على رأس العمل • ${added} جديد • ${updated} محدّث • ${gone} غادروا`, changes: out };
@@ -335,12 +337,11 @@ H.finalexit = async (db, wb) => {
   for (const r of rows) {
     const e = map.get(idOf(r["رقم الإقامة"]));
     if (!e || e.status === "left") continue;
-    await db.query("UPDATE employees SET status = 'left', updated_at = now() WHERE id = $1", [e.id]);
-    await db.query("INSERT INTO movements (employee_id, move_type, move_date, notes) VALUES ($1,'termination',$2,$3)",
-      [e.id, anyDate(r["تاريخ اصدار التأشيرة بالميلادي"]) || new Date().toISOString().slice(0, 10), `خروج نهائي — تأشيرة ${txt(r["رقم التأشيرة"]) || ""}`]);
-    out.push(`➖ ${nm(e)}: خروج نهائي — تم تحويله لـ "غادر"`);
+    await toTrash(db, "employees", e.id, { name: `خروج نهائي — تأشيرة ${txt(r["رقم التأشيرة"]) || ""}` });
+    await db.query("DELETE FROM employees WHERE id = $1", [e.id]);
+    out.push(`➖ ${nm(e)}: خروج نهائي — انشال من النظام (محفوظ في سلة المحذوفات)`);
   }
-  return { summary: out.length ? `${out.length} تم تحويلهم لغادر` : "كل أصحاب الخروج النهائي غير موجودين بالقوائم (غادروا) ✔", changes: out };
+  return { summary: out.length ? `${out.length} انشالوا من النظام (خروج نهائي)` : "كل أصحاب الخروج النهائي غير موجودين بالقوائم (غادروا) ✔", changes: out };
 };
 
 H.transfers = async (db, wb) => {

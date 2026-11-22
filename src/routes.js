@@ -11,6 +11,7 @@ import { detectWorkbook, applyUpdateFile } from "./updates.js";
 import { signRoute, appraisalsRoute } from "./appraisals.js";
 import { toTrash, trashRoute } from "./trash.js";
 import { renewContracts } from "./renewals.js";
+import { withSecrets, saveSecrets } from "./secrets.js";
 import { askClaude, aiConfigured, buildContext } from "./ai.js";
 import { sendAlertEmail, emailConfigured } from "./alerts.js";
 import { DEFAULT_SETTINGS } from "../public/js/logic.js";
@@ -342,7 +343,7 @@ async function settings(req, env) {
   if (req.method === "GET") {
     const u = await requireUser(env, req);
     if (u instanceof Response) return u;
-    return json({ settings: await getSettings(env) });
+    return json({ settings: await getSettings(env), keys: env.KEY_SOURCE || {} });
   }
   const u = await requireUser(env, req, { admin: true });
   if (u instanceof Response) return u;
@@ -396,7 +397,7 @@ async function ai(req, env) {
     return json({ error: "اكتب سؤالك" }, 400);
   }
   try {
-    const out = await askClaude(env, { messages, context: buildContext({ ...data, rules: data.saud_rules }, st), mode, lang });
+    const out = await askClaude(env, { messages, context: buildContext({ ...data, rules: data.saud_rules, leaves: data.leaves, appraisals: data.appraisals }, st), mode, lang });
     if (mode === "screen" && out.text) {
       const db = await getDb(env);
       await db.query("UPDATE applicants SET ai_summary = $1 WHERE id = $2", [out.text.slice(0, 8000), parseInt(body.applicant_id, 10)]);
@@ -404,7 +405,7 @@ async function ai(req, env) {
     return json(out);
   } catch (e) {
     console.error("AI error", e?.status, e?.message);
-    if (e.status === 503) return json({ error: "الذكاء الاصطناعي غير مفعّل — أضف مفتاح ANTHROPIC_API_KEY في إعدادات الاستضافة" }, 503);
+    if (e.status === 503) return json({ error: "الذكاء الاصطناعي غير مفعّل — المدير يضيف مفتاح Claude من الإعدادات" }, 503);
     if (e.status === 429) return json({ error: "ضغط على خدمة الذكاء، حاول بعد قليل" }, 429);
     return json({ error: "تعذر الاتصال بخدمة الذكاء الاصطناعي" }, 502);
   }
@@ -441,6 +442,15 @@ async function appraisals(req, env) {
   return appraisalsRoute(req, env, u, audit);
 }
 const sign = (req, env) => signRoute(req, env, audit);
+async function secrets(req, env) {
+  const u = await requireUser(env, req, { admin: true });
+  if (u instanceof Response) return u;
+  const body = (await readJson(req)) || {};
+  const out = await saveSecrets(env, body);
+  if (out.error) return json(out, 400);
+  await audit(env, u, "update", "api_keys", null, { ai: "anthropic_key" in body, email: "resend_key" in body });
+  return json(out);
+}
 async function renewNow(req, env) {
   const u = await requireUser(env, req, { role: "editor" });
   if (u instanceof Response) return u;
@@ -474,10 +484,12 @@ const ROUTES = {
   "/api/sign": { GET: sign, POST: sign },
   "/api/trash": { GET: trash, POST: trash, DELETE: trash },
   "/api/renew": { POST: renewNow },
+  "/api/secrets": { PUT: secrets },
 };
 
 // Handle one API request. `path` is the API path such as "/api/login".
-export async function handle(req, env, path) {
+export async function handle(req, rawEnv, path) {
+  const env = await withSecrets(rawEnv);
   const authed = !["/api/login", "/api/logout", "/api/cron", "/api/sign"].includes(path);
   const route = ROUTES[path];
   let res;
