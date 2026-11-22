@@ -1,5 +1,6 @@
 // HR control platform — single page app (vanilla ES modules, no build step).
 import { t, f, getLang, setLang } from "./i18n.js";
+import { renderDoc, GRADES, DECISIONS, STATUS as APR_STATUS } from "./appraisal-doc.js";
 import {
   DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage,
 } from "./logic.js";
@@ -43,12 +44,12 @@ async function api(path, opts = {}) {
   return d;
 }
 
-function toast(msg, err = false) {
+function toast(msg, err = false, ms = 2600) {
   const el = document.createElement("div");
-  el.className = "toast" + (err ? " err" : "");
+  el.className = "toast" + (err === "warn" ? " warn" : err ? " err" : "");
   el.textContent = msg;
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 2600);
+  setTimeout(() => el.remove(), ms);
 }
 
 async function reload() {
@@ -79,6 +80,7 @@ const I = {
   users: "M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z",
   leaves: "M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14zM7 11h5v5H7z",
   movements: "M16 17.01V10h-2v7.01h-3L15 21l4-3.99zM9 3 5 6.99h3V14h2V6.99h3z",
+  appraisals: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm-1 7V3.5L18.5 9zM7 18l2.5-3 1.8 2.2L14 14l3 4z",
   reports: "M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H7v-7h2zm4 0h-2V7h2zm4 0h-2v-4h2z",
   audit: "M13 3a9 9 0 0 0-9 9H1l4 4 4-4H6a7 7 0 1 1 2.1 5l-1.4 1.4A9 9 0 1 0 13 3zm-1 5v5l4.3 2.5.7-1.2-3.5-2.1V8z",
 };
@@ -86,7 +88,7 @@ const icon = (k) => `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="t
 
 const NAV = [
   ["nav.main", ["dashboard", "reports", "assistant"]],
-  ["nav.people", ["employees", "labor", "leaves", "movements", "dependents"]],
+  ["nav.people", ["employees", "labor", "leaves", "movements", "appraisals", "dependents"]],
   ["nav.compliance", ["documents", "insurance", "platforms", "tasks"]],
   ["nav.growth", ["saudization", "recruitment"]],
   ["nav.tools", ["import"]],
@@ -103,6 +105,7 @@ function renderNav() {
     tasks: D.tasks.filter((x) => x.status === "open").length,
     recruitment: D.applicants.filter((a) => !["hired", "rejected"].includes(a.stage)).length,
     leaves: D.leaves.filter((l) => l.status === "pending").length,
+    appraisals: (D.appraisals || []).filter((a) => a.status !== "completed").length,
   };
   let h = "";
   for (const [g, items, adminOnly] of NAV) {
@@ -156,6 +159,8 @@ function route() {
   $("#side").classList.remove("open");
   document.title = t("p." + k) + " — " + t("app");
   $("#printTitle").textContent = t("p." + k);
+  $("#footTxt").textContent = `${settings()[L() === "en" ? "hotel_name_en" : "hotel_name_ar"] || "Novotel"} — ${t("app")}`;
+  $("#footMeta").textContent = `© ${new Date().getFullYear()} • ${t("print.generated")}: ${fmtDate(new Date().toISOString())}`;
   $("#printMeta").textContent = `${settings()[L() === "en" ? "hotel_name_en" : "hotel_name_ar"]} • ${t("print.generated")}: ${fmtDate(new Date().toISOString())} • ${t("print.by")}: ${ME.name}`;
   PAGES[k]();
 }
@@ -256,6 +261,12 @@ function exportXlsx(name, cols, rows, getv) {
   XLSX.writeFile(wb, `${name}-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
+// Does the employee's exit/re-entry visa cover this leave?
+function visaCovers(l) {
+  const d = D.documents.find((x) => x.employee_id === l.employee_id && x.doc_type === "exit_reentry");
+  return !!(d && d.issue_date && d.expiry_date && d.issue_date <= l.start_date && d.expiry_date >= l.end_date);
+}
+
 // ================= forms =================
 const OPTS = {
   gender: () => [["ذكر", L() === "en" ? "Male" : "ذكر"], ["أنثى", L() === "en" ? "Female" : "أنثى"]],
@@ -270,6 +281,7 @@ const OPTS = {
   category: () => ["general", "renewal", "insurance", "missing_date", "platform"].map((s) => [s, t("cat." + s)]),
   saudi_only: () => [["false", t("no")], ["true", t("yes")]],
   leave_type: () => ["annual", "sick", "emergency", "unpaid", "hajj", "maternity", "other"].map((k) => [k, t("lv." + k)]),
+  yesno: () => [["false", t("no")], ["true", t("yes")]],
   leave_status: () => ["pending", "approved", "rejected"].map((k) => [k, t("ls." + k)]),
   move_type: () => ["promotion", "transfer", "salary", "title", "contract", "warning", "termination", "resignation", "other"].map((k) => [k, t("mv." + k)]),
 };
@@ -291,7 +303,7 @@ const FORMS = {
   tasks: [["", ["title*", "category:category", "status:taskstatus", "person", "id_no", "due_date:date", "details:textarea"]]],
   jobs: [["", ["title*", "department", "openings:number", "saudi_only:saudi_only", "status:jobstatus", "salary_range", "description:textarea"]]],
   applicants: [["", ["name*", "job_id:job_id", "stage:stage", "nationality", "id_no", "mobile", "email", "rating:number", "source", "expected_salary:number", "notes:textarea", "cv_text:textarea"]]],
-  leaves: [["", ["employee_id*:employee_id", "leave_type:leave_type", "start_date*:date", "end_date*:date", "status:leave_status", "notes:textarea"]]],
+  leaves: [["", ["employee_id*:employee_id", "leave_type:leave_type", "start_date*:date", "end_date*:date", "outside_ksa:yesno", "status:leave_status", "notes:textarea"]]],
   movements: [["", ["employee_id*:employee_id", "move_type*:move_type", "move_date*:date", "from_value", "to_value", "notes:textarea"]]],
   saud_rules: [["", ["name*", "required_pct:number", "source", "effective_date:date", "occupations:textarea", "notes:textarea"]]],
 };
@@ -342,7 +354,7 @@ function openForm(table, row, { form, title, preset, onSaved } = {}) {
     try {
       const out = await api(`/api/rows?table=${table}`, { method: row ? "PUT" : "POST", body });
       m.close();
-      toast(t("saved"));
+      if (out.warning) toast("✈️ " + out.warning, "warn", 9000); else toast(t("saved"));
       await refresh();
       onSaved && onSaved(out.row);
     } catch (e) {
@@ -584,7 +596,8 @@ function openProfile(id, tab) {
   const mvs = D.movements.filter((x) => x.employee_id === id);
   const fls = D.attachments.filter((x) => x.employee_id === id);
   const bal = leaveBalance(e);
-  const counts = { docs: docs.length, files: fls.length, leaves: lvs.length, moves: mvs.length, deps: deps.length, ins: ins.length };
+  const aprs = (D.appraisals || []).filter((a) => a.employee_id === id);
+  const counts = { apr: aprs.length, docs: docs.length, files: fls.length, leaves: lvs.length, moves: mvs.length, deps: deps.length, ins: ins.length };
   const skip = new Set(["id", "kind", "platform", "created_at", "updated_at"]);
   const kv = Object.entries(e)
     .filter(([k, v]) => !skip.has(k) && v !== null && v !== "")
@@ -595,7 +608,7 @@ function openProfile(id, tab) {
       <div style="display:flex;gap:6px">${canEdit() ? `<button class="btn sm" id="pEdit">${esc(t("edit"))}</button>` : ""}<button class="btn ghost sm" id="pPrint">${esc(t("print"))}</button><button class="x" data-close>×</button></div></header>
     <div class="body">
       <div class="print-head"><img src="/logo-navy.png" alt=""><div class="t"><b>${esc(empName(e))}</b>${esc(settings()[L() === "en" ? "hotel_name_en" : "hotel_name_ar"])} • ${esc(fmtDate(new Date().toISOString()))}</div></div>
-      <div class="tabs no-print">${["info", "docs", "files", "leaves", "moves", "deps", "ins", "plat"].map((k, i) => `<button data-tab="${k}" class="${i ? "" : "on"}">${esc({ info: t("details"), docs: t("p.documents"), files: t("files"), leaves: t("p.leaves"), moves: t("p.movements"), deps: t("p.dependents"), ins: t("p.insurance"), plat: t("p.platforms") }[k])}${counts[k] ? ` (${counts[k]})` : ""}</button>`).join("")}</div>
+      <div class="tabs no-print">${["info", "docs", "files", "leaves", "moves", "apr", "deps", "ins", "plat"].map((k, i) => `<button data-tab="${k}" class="${i ? "" : "on"}">${esc({ info: t("details"), docs: t("p.documents"), files: t("files"), leaves: t("p.leaves"), moves: t("p.movements"), apr: t("p.appraisals"), deps: t("p.dependents"), ins: t("p.insurance"), plat: t("p.platforms") }[k])}${counts[k] ? ` (${counts[k]})` : ""}</button>`).join("")}</div>
       <div data-pane="info"><div class="kv">${kv}</div></div>
       <div data-pane="docs" class="hidden">
         ${canEdit() ? `<button class="btn sm no-print" id="pAddDoc" style="margin-bottom:10px">+ ${esc(t("doc.add"))}</button>` : ""}
@@ -621,6 +634,10 @@ function openProfile(id, tab) {
         <div class="tbl compact"><table><thead><tr><th>${esc(f("move_date"))}</th><th>${esc(f("move_type"))}</th><th>${esc(f("from_value"))}</th><th>${esc(f("to_value"))}</th><th>${esc(f("notes"))}</th></tr></thead>
         <tbody>${mvs.map((x) => `<tr class="click" data-mv="${x.id}"><td class="num">${esc(fmtDate(x.move_date))}</td><td>${esc(t("mv." + x.move_type))}</td><td>${esc(x.from_value || "")}</td><td>${esc(x.to_value || "")}</td><td class="wrap">${esc(x.notes || "")}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
       </div>
+      <div data-pane="apr" class="hidden">
+        ${canEdit() ? `<button class="btn sm no-print" id="pAddApr" style="margin-bottom:10px">+ ${esc(t("apr.new"))}</button>` : ""}
+        ${aprTable(aprs, false)}
+      </div>
       <div data-pane="deps" class="hidden">
         ${canEdit() ? `<button class="btn sm no-print" id="pAddDep" style="margin-bottom:10px">+ ${esc(t("add"))}</button>` : ""}
         <div class="tbl compact"><table><thead><tr><th>${esc(f("name"))}</th><th>${esc(f("iqama_no"))}</th><th>${esc(f("relation"))}</th><th>${esc(f("passport_expiry"))}</th></tr></thead>
@@ -633,6 +650,8 @@ function openProfile(id, tab) {
       <div data-pane="plat" class="hidden"><div class="kv">${[["qiwa_staff", "قوى - موظفي المنشأة", "Qiwa establishment"], ["qiwa_contract", "قوى - عقد ساري", "Qiwa contract"], ["gosi", "التأمينات", "GOSI"], ["muqeem", "مقيم", "Muqeem"], ["work_permit", "رخصة العمل", "Work permit"], ["result", "النتيجة", "Result"], ["note", "الملاحظة", "Note"]]
         .map(([k, ar, en]) => `<div><span>${esc(L() === "en" ? en : ar)}</span><b>${markCell(p[k])}</b></div>`).join("")}</div></div>
     </div>`);
+  $("#pAddApr", m.root)?.addEventListener("click", () => { m.close(); newAppraisal(id); });
+  bindApr(m.root, () => m.close());
   $$("[data-tab]", m.root).forEach((b) => b.addEventListener("click", () => {
     $$("[data-tab]", m.root).forEach((x) => x.classList.toggle("on", x === b));
     $$("[data-pane]", m.root).forEach((p) => p.classList.toggle("hidden", p.dataset.pane !== b.dataset.tab));
@@ -1021,27 +1040,43 @@ PAGES.import = () => {
   $("#view").innerHTML = `${head(t("p.import"), "")}
     <div class="grid g2">
       <div class="card"><h3>${esc(t("i.title"))}</h3><p class="muted" style="margin-top:0">${esc(t("i.desc"))}</p>
-        ${canEdit() ? `<label class="drop" id="drop"><input type="file" id="file" accept=".xlsx" hidden><div>⬆ ${esc(t("i.drop"))}</div></label><p class="msg" id="im"></p>` : `<p class="muted">${esc(t("no.permission"))}</p>`}</div>
+        ${canEdit() ? `<label class="drop" id="drop"><input type="file" id="file" accept=".xlsx" multiple hidden><div>⬆ ${esc(t("i.drop"))}</div></label><p class="msg" id="im"></p>` : `<p class="muted">${esc(t("no.permission"))}</p>`}
+        <p class="muted small" style="margin-bottom:0">${esc(t("i.types"))}</p></div>
       <div class="card"><h3>${esc(t("e.title"))}</h3><p class="muted" style="margin-top:0">${esc(t("e.desc"))}</p>
         <div style="display:flex;flex-wrap:wrap;gap:8px">${tables.map(([k, l]) => `<button class="btn ghost" data-x="${k}">⬇ ${esc(l)}</button>`).join("")}</div></div>
-    </div>`;
-  const up = async (file) => {
-    if (!file) return;
-    const im = $("#im");
-    im.className = "msg"; im.textContent = t("loading");
-    try {
-      const out = await api("/api/import", { method: "POST", headers: { "content-type": "application/octet-stream" }, body: file });
-      im.className = "msg ok";
-      im.textContent = `${t("i.done")} ✔ — ` + Object.entries(out.stats).map(([k, v]) => `${k}: ${v}`).join(" • ");
-      await reload(); renderNav();
-    } catch (e) { im.className = "msg err"; im.textContent = e.message; }
+    </div>
+    <div id="impRep"></div>`;
+  const up = async (files) => {
+    files = [...(files || [])];
+    if (!files.length) return;
+    const im = $("#im"), rep = $("#impRep");
+    im.className = "msg"; rep.innerHTML = "";
+    const cards = [];
+    for (const [i, file] of files.entries()) {
+      im.textContent = `${t("loading")} (${i + 1}/${files.length}) ${file.name}`;
+      try {
+        const out = await api("/api/import", { method: "POST", headers: { "content-type": "application/octet-stream" }, body: file });
+        const u = out.update;
+        cards.push(u
+          ? { ok: true, name: file.name, label: u.label, summary: u.summary, changes: u.changes }
+          : { ok: true, name: file.name, label: t("i.main"), summary: Object.entries(out.stats).map(([k, v]) => `${k}: ${v}`).join(" • "), changes: [] });
+      } catch (e) { cards.push({ ok: false, name: file.name, label: "✖", summary: e.message, changes: [] }); }
+      rep.innerHTML = `<div class="card" style="margin-top:16px"><h3>📋 ${esc(t("i.report"))}</h3>${cards.map((c) => `
+        <div class="imp-item ${c.ok ? "" : "bad"}"><div class="imp-h"><b>${esc(c.label)}</b><span class="muted small">${esc(c.name)}</span></div>
+        <div class="imp-s">${esc(c.summary)}</div>${c.changes.length ? `<ul class="imp-c">${c.changes.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}</div>`).join("")}
+        <div style="margin-top:10px"><button class="btn ghost" id="impPrint">🖨 ${esc(t("print"))}</button></div></div>`;
+      $("#impPrint").onclick = () => window.print();
+    }
+    im.className = cards.every((c) => c.ok) ? "msg ok" : "msg err";
+    im.textContent = `${t("i.done")} ✔ (${cards.filter((c) => c.ok).length}/${files.length})`;
+    await reload(); renderNav();
   };
   const drop = $("#drop");
   if (drop) {
-    $("#file").addEventListener("change", (e) => up(e.target.files[0]));
+    $("#file").addEventListener("change", (e) => up(e.target.files));
     drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
     drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-    drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); up(e.dataTransfer.files[0]); });
+    drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); up(e.dataTransfer.files); });
   }
   $$("[data-x]").forEach((b) => b.addEventListener("click", () => {
     const rows = D[b.dataset.x];
@@ -1201,7 +1236,7 @@ PAGES.leaves = () => {
       id: "leaves", rows: D.leaves.filter((l) => EMP.has(l.employee_id)), exportName: t("p.leaves"),
       cols: [
         { k: "emp", label: f("employee_id"), get: (l) => empName(EMP.get(l.employee_id)), render: (l) => `<b>${esc(empName(EMP.get(l.employee_id)))}</b><br><small class="muted">${esc(EMP.get(l.employee_id)?.department || "")}</small>` },
-        { k: "type", label: f("leave_type"), get: (l) => t("lv." + l.leave_type) },
+        { k: "type", label: f("leave_type"), get: (l) => t("lv." + l.leave_type) + (l.outside_ksa ? " ✈️" : ""), render: (l) => esc(t("lv." + l.leave_type)) + (l.outside_ksa ? ` <span class="pill ${visaCovers(l) ? "s-ok" : "s-expired"}" title="${esc(t("lv.visa"))}">✈️ ${esc(visaCovers(l) ? t("lv.visaok") : t("lv.visano"))}</span>` : "") },
         { k: "start_date", label: f("start_date"), num: true },
         { k: "end_date", label: f("end_date"), num: true },
         { k: "days", label: f("days"), num: true, render: (l) => fmtNum(l.days) },
@@ -1212,7 +1247,7 @@ PAGES.leaves = () => {
       filters: [{ k: "type", label: f("leave_type"), get: (l) => t("lv." + l.leave_type) }],
       onRow: (l) => openForm("leaves", D.leaves.find((x) => x.id === l.id)),
       afterDraw: (root) => {
-        const set = (id, status) => api("/api/rows?table=leaves", { method: "PUT", body: { id, status } }).then(() => { toast(t("saved")); return refresh(); });
+        const set = (id, status) => api("/api/rows?table=leaves", { method: "PUT", body: { id, status } }).then((o) => { o.warning ? toast("✈️ " + o.warning, "warn", 9000) : toast(t("saved")); return refresh(); });
         $$("[data-ap]", root).forEach((b) => b.addEventListener("click", () => set(+b.dataset.ap, "approved")));
         $$("[data-rj]", root).forEach((b) => b.addEventListener("click", () => set(+b.dataset.rj, "rejected")));
       },
@@ -1251,6 +1286,108 @@ PAGES.movements = () => {
     chipGet: (x) => t("mv." + x.move_type),
     onRow: (x) => openForm("movements", D.movements.find((m) => m.id === x.id)),
   });
+};
+
+// ================= APPRAISALS (e-signature) =================
+const signLink = (tok) => `${location.origin}/sign.html?t=${encodeURIComponent(tok)}`;
+const aprPill = (s) => `<span class="pill ${s === "completed" ? "s-ok" : s === "employee" ? "s-info" : "s-near"}">${esc(APR_STATUS[s]?.[L() === "en" ? 1 : 0] || s)}</span>`;
+const bil = (m, k) => (m[k] ? m[k][L() === "en" ? 1 : 0] : "—");
+
+function aprTable(rows, withEmp = true) {
+  if (!rows.length) return `<p class="muted">${esc(t("apr.none"))}</p>`;
+  return `<div class="tbl compact"><table><thead><tr>${withEmp ? `<th>${esc(f("employee_id"))}</th>` : ""}<th>${esc(t("apr.period"))}</th><th>${esc(t("apr.manager"))}</th><th>${esc(f("status"))}</th><th class="num">${esc(t("apr.score"))}</th><th>${esc(t("apr.decision"))}</th><th class="no-print"></th></tr></thead><tbody>
+    ${rows.map((a) => {
+      const tok = a.status === "manager" ? a.token_mgr : a.status === "employee" ? a.token_emp : null;
+      return `<tr>${withEmp ? `<td><b>${esc(empName(EMP.get(a.employee_id)))}</b><br><small class="muted">${esc(EMP.get(a.employee_id)?.job_title || "")}</small></td>` : ""}
+      <td>${esc(a.period || "—")}</td><td>${esc(a.manager_name || "")}</td><td>${aprPill(a.status)}</td>
+      <td class="num">${a.total != null ? esc(a.total) + "%" : "—"}<br><small class="muted">${esc(a.grade ? bil(GRADES, a.grade) : "")}</small></td>
+      <td><span class="dec-t ${esc(a.decision || "")}">${esc(a.decision ? bil(DECISIONS, a.decision) : "—")}</span></td>
+      <td class="no-print"><span class="row-acts">
+        ${tok ? `<button class="btn sm" data-aprlink="${a.id}" data-tok="${esc(tok)}" data-st="${a.status}">🔗 ${esc(t(a.status === "manager" ? "apr.sendmgr" : "apr.sendemp"))}</button>` : ""}
+        ${a.status !== "manager" ? `<button class="btn ghost sm" data-aprview="${a.id}">📄 ${esc(t("apr.view"))}</button>` : ""}
+        ${canEdit() ? `<button class="btn ghost sm" data-aprdel="${a.id}" title="${esc(t("delete"))}">✕</button>` : ""}</span></td></tr>`;
+    }).join("")}</tbody></table></div>`;
+}
+
+function bindApr(root, before = () => {}) {
+  $$("[data-aprlink]", root).forEach((b) => b.addEventListener("click", () => { before(); shareLink(+b.dataset.aprlink, b.dataset.tok, b.dataset.st); }));
+  $$("[data-aprview]", root).forEach((b) => b.addEventListener("click", () => { before(); viewAppraisal(+b.dataset.aprview); }));
+  $$("[data-aprdel]", root).forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm(t("confirm.delete"))) return;
+    try { await api("/api/appraisals", { method: "DELETE", body: { id: +b.dataset.aprdel } }); before(); toast(t("deleted")); await refresh(); } catch (e) { toast(e.message, true); }
+  }));
+}
+
+function shareLink(id, tok, stage) {
+  const a = (D.appraisals || []).find((x) => x.id === id);
+  const e = EMP.get(a?.employee_id);
+  const link = signLink(tok);
+  const who = stage === "manager" ? (a?.manager_name || "") : empName(e);
+  const msg = stage === "manager"
+    ? `السلام عليكم ${who}،\nنرجو تقييم أداء الموظف/ة ${empName(e)} وتحديد قرار تجديد العقد والتوقيع إلكترونيًا عبر الرابط:\n${link}\n— الموارد البشرية، نوفوتيل المدينة`
+    : `السلام عليكم ${who}،\nنرجو الاطلاع على تقييم أدائك وقرار تجديد العقد والتوقيع إلكترونيًا عبر الرابط:\n${link}\n— الموارد البشرية، نوفوتيل المدينة`;
+  const m = modal(`<header><h3>🔗 ${esc(t(stage === "manager" ? "apr.sendmgr" : "apr.sendemp"))} — ${esc(who)}</h3><button class="x" data-close>×</button></header>
+    <div class="body"><p class="muted" style="margin-top:0">${esc(t("apr.linkhelp"))}</p>
+      <input class="input" readonly value="${esc(link)}" style="direction:ltr" id="lnk">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn" id="lcp">📋 ${esc(t("apr.copy"))}</button>
+        <a class="btn ghost" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">💬 WhatsApp</a>
+        <a class="btn ghost" href="mailto:?subject=${encodeURIComponent("تقييم الأداء وتجديد العقد — " + empName(e))}&body=${encodeURIComponent(msg)}">✉️ ${esc(t("apr.email"))}</a>
+        <a class="btn ghost" target="_blank" rel="noopener" href="${esc(link)}">↗ ${esc(t("apr.open"))}</a>
+        ${canEdit() ? `<button class="btn ghost" id="lnew">↻ ${esc(t("apr.renew"))}</button>` : ""}
+      </div><p class="muted small">${esc(t("apr.expires"))}: ${esc(fmtDate(a?.expires_at))}</p></div>`);
+  $("#lcp", m.root).onclick = () => { navigator.clipboard?.writeText(link); $("#lnk", m.root).select(); toast("✔ " + t("apr.copied")); };
+  $("#lnew", m.root)?.addEventListener("click", async () => {
+    try { const o = await api("/api/appraisals", { method: "PUT", body: { id } }); m.close(); await refresh(); shareLink(id, o.token_mgr || o.token_emp, stage); } catch (err) { toast(err.message, true); }
+  });
+}
+
+async function viewAppraisal(id) {
+  try {
+    const v = await api("/api/appraisals?id=" + id);
+    const m = modal(`<header><h3>📄 ${esc(t("p.appraisals"))} — ${esc(v.employee.name_ar)}</h3><div style="display:flex;gap:6px"><button class="btn sm" id="aprPr">🖨 ${esc(t("apr.pdf"))}</button><button class="x" data-close>×</button></div></header>
+      <div class="body">${renderDoc(v)}</div>`, "wide");
+    $("#aprPr", m.root).onclick = () => printModal(m);
+  } catch (e) { toast(e.message, true); }
+}
+
+function newAppraisal(empId) {
+  const y = new Date().getFullYear();
+  const m = modal(`<header><h3>+ ${esc(t("apr.new"))}</h3><button class="x" data-close>×</button></header>
+    <div class="body"><form id="afrm" class="form-grid">
+      <label>${esc(f("employee_id"))} *<select class="input" name="employee_id" required><option value=""></option>${OPTS.employee_id().map(([v, l]) => `<option value="${v}" ${String(empId) === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+      <label>${esc(t("apr.period"))}<input class="input" name="period" value="${y}"></label>
+      <label>${esc(t("apr.manager"))} *<input class="input" name="manager_name" required></label>
+      <label>${esc(t("apr.mtitle"))}<input class="input" name="manager_title"></label>
+    </form><p class="muted small">${esc(t("apr.flow"))}</p><p class="msg err" id="aerr"></p></div>
+    <footer><button class="btn ghost" data-close>${esc(t("cancel"))}</button><button class="btn" id="asave">${esc(t("apr.create"))}</button></footer>`);
+  $("#asave", m.root).onclick = async () => {
+    const frm = $("#afrm", m.root);
+    if (!frm.reportValidity()) return;
+    try {
+      const o = await api("/api/appraisals", { method: "POST", body: Object.fromEntries(new FormData(frm).entries()) });
+      m.close(); await refresh(); shareLink(o.id, o.token_mgr, "manager");
+    } catch (e) { $("#aerr", m.root).textContent = e.message; }
+  };
+}
+
+PAGES.appraisals = () => {
+  const all = (D.appraisals || []).filter((a) => EMP.has(a.employee_id));
+  const tab = tableState.aprTab || "all";
+  const rows = all.filter((a) => tab === "all" || (tab === "open" ? a.status !== "completed" : a.status === "completed"));
+  const n = (fn) => all.filter(fn).length;
+  $("#view").innerHTML = `${head(t("p.appraisals"), t("apr.desc"), `${canEdit() ? `<button class="btn" id="addApr">+ ${esc(t("apr.new"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`)}
+    <div class="grid kpis">
+      <div class="card kpi orange"><div class="l">${esc(APR_STATUS.manager[L() === "en" ? 1 : 0])}</div><div class="v num">${n((a) => a.status === "manager")}</div></div>
+      <div class="card kpi blue"><div class="l">${esc(APR_STATUS.employee[L() === "en" ? 1 : 0])}</div><div class="v num">${n((a) => a.status === "employee")}</div></div>
+      <div class="card kpi green"><div class="l">${esc(bil(DECISIONS, "renew"))}</div><div class="v num">${n((a) => a.decision === "renew")}</div></div>
+      <div class="card kpi red"><div class="l">${esc(bil(DECISIONS, "not_renew"))} / ${esc(bil(DECISIONS, "renew_conditional"))}</div><div class="v num">${n((a) => a.decision && a.decision !== "renew")}</div></div>
+    </div>
+    <div class="tabs no-print">${["all", "open", "done"].map((k) => `<button data-t="${k}" class="${tab === k ? "on" : ""}">${esc(t("apr.t." + k))}</button>`).join("")}</div>
+    <div class="card">${aprTable(rows)}</div>`;
+  $("#addApr")?.addEventListener("click", () => newAppraisal(""));
+  $$("[data-t]").forEach((b) => b.addEventListener("click", () => { tableState.aprTab = b.dataset.t; route(); }));
+  bindApr($("#view"));
 };
 
 // ================= REPORTS =================

@@ -184,6 +184,33 @@ CREATE TABLE IF NOT EXISTS audit (
   entity_id text,
   details jsonb
 );
+
+ALTER TABLE leaves ADD COLUMN IF NOT EXISTS outside_ksa boolean DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS appraisals (
+  id serial PRIMARY KEY,
+  employee_id integer NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  period text,
+  manager_name text,
+  manager_title text,
+  status text NOT NULL DEFAULT 'manager',
+  scores jsonb,
+  total numeric,
+  grade text,
+  decision text,
+  decision_note text,
+  manager_comment text,
+  employee_comment text,
+  manager_sig text,
+  manager_signed_at timestamptz,
+  employee_sig text,
+  employee_signed_at timestamptz,
+  token_mgr text UNIQUE,
+  token_emp text UNIQUE,
+  expires_at timestamptz,
+  created_by text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 `;
 
 // Editable columns per table (anything else in a request is ignored).
@@ -251,7 +278,7 @@ export const TABLES = {
     order: "created_at DESC",
   },
   leaves: {
-    cols: { employee_id: "int", leave_type: "text", start_date: "date", end_date: "date", days: "number", status: "text", notes: "text" },
+    cols: { employee_id: "int", leave_type: "text", start_date: "date", end_date: "date", days: "number", status: "text", outside_ksa: "bool", notes: "text" },
     required: ["employee_id", "start_date", "end_date"],
     order: "start_date DESC",
   },
