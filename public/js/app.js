@@ -77,13 +77,16 @@ const I = {
   import: "M5 20h14v-2H5zM19 9h-4V3H9v6H5l7 7z",
   settings: "M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.4 2.7a7.6 7.6 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.6 7.6 0 0 0 1.7 1L11 21h4l.4-2.7a7.6 7.6 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z",
   users: "M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z",
+  leaves: "M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14zM7 11h5v5H7z",
+  movements: "M16 17.01V10h-2v7.01h-3L15 21l4-3.99zM9 3 5 6.99h3V14h2V6.99h3z",
+  reports: "M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H7v-7h2zm4 0h-2V7h2zm4 0h-2v-4h2z",
   audit: "M13 3a9 9 0 0 0-9 9H1l4 4 4-4H6a7 7 0 1 1 2.1 5l-1.4 1.4A9 9 0 1 0 13 3zm-1 5v5l4.3 2.5.7-1.2-3.5-2.1V8z",
 };
 const icon = (k) => `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${I[k] || I.dashboard}"/></svg>`;
 
 const NAV = [
-  ["nav.main", ["dashboard", "assistant"]],
-  ["nav.people", ["employees", "labor", "dependents"]],
+  ["nav.main", ["dashboard", "reports", "assistant"]],
+  ["nav.people", ["employees", "labor", "leaves", "movements", "dependents"]],
   ["nav.compliance", ["documents", "insurance", "platforms", "tasks"]],
   ["nav.growth", ["saudization", "recruitment"]],
   ["nav.tools", ["import"]],
@@ -99,6 +102,7 @@ function renderNav() {
     documents: alerts.length,
     tasks: D.tasks.filter((x) => x.status === "open").length,
     recruitment: D.applicants.filter((a) => !["hired", "rejected"].includes(a.stage)).length,
+    leaves: D.leaves.filter((l) => l.status === "pending").length,
   };
   let h = "";
   for (const [g, items, adminOnly] of NAV) {
@@ -106,11 +110,12 @@ function renderNav() {
     h += `<div class="nav-group">${esc(t(g))}</div>`;
     for (const k of items) {
       const c = counts[k];
-      const badge = c ? `<span class="badge ${k === "documents" || k === "tasks" ? "alert" : ""}">${c}</span>` : "";
+      const badge = c ? `<span class="badge ${k === "documents" || k === "tasks" || k === "leaves" ? "alert" : ""}">${c}</span>` : "";
       h += `<a href="#${k}" data-k="${k}">${icon(k)}<span>${esc(t("p." + k))}</span>${badge}</a>`;
     }
   }
   $("#nav").innerHTML = h;
+  $$("#nav a").forEach((el) => el.addEventListener("click", () => { tableState.report = null; }));
   $("#me").innerHTML = `<b>${esc(ME.name)}</b><span style="color:#a8a9d2">${esc(t("role." + ME.role))}</span><div>
     <button id="pwBtn">${esc(t("change.password"))}</button><button id="outBtn">${esc(t("logout"))}</button></div>`;
   $("#pwBtn").onclick = openPassword;
@@ -264,6 +269,9 @@ const OPTS = {
   taskstatus: () => [["open", t("task.open")], ["done", t("task.done")]],
   category: () => ["general", "renewal", "insurance", "missing_date", "platform"].map((s) => [s, t("cat." + s)]),
   saudi_only: () => [["false", t("no")], ["true", t("yes")]],
+  leave_type: () => ["annual", "sick", "emergency", "unpaid", "hajj", "maternity", "other"].map((k) => [k, t("lv." + k)]),
+  leave_status: () => ["pending", "approved", "rejected"].map((k) => [k, t("ls." + k)]),
+  move_type: () => ["promotion", "transfer", "salary", "title", "contract", "warning", "termination", "resignation", "other"].map((k) => [k, t("mv." + k)]),
 };
 
 const FORMS = {
@@ -283,6 +291,8 @@ const FORMS = {
   tasks: [["", ["title*", "category:category", "status:taskstatus", "person", "id_no", "due_date:date", "details:textarea"]]],
   jobs: [["", ["title*", "department", "openings:number", "saudi_only:saudi_only", "status:jobstatus", "salary_range", "description:textarea"]]],
   applicants: [["", ["name*", "job_id:job_id", "stage:stage", "nationality", "id_no", "mobile", "email", "rating:number", "source", "expected_salary:number", "notes:textarea", "cv_text:textarea"]]],
+  leaves: [["", ["employee_id*:employee_id", "leave_type:leave_type", "start_date*:date", "end_date*:date", "status:leave_status", "notes:textarea"]]],
+  movements: [["", ["employee_id*:employee_id", "move_type*:move_type", "move_date*:date", "from_value", "to_value", "notes:textarea"]]],
   saud_rules: [["", ["name*", "required_pct:number", "source", "effective_date:date", "occupations:textarea", "notes:textarea"]]],
 };
 const SEC = { job: ["بيانات الوظيفة", "Job"], salary: ["الراتب والبنك", "Salary & bank"], other: ["أخرى", "Other"] };
@@ -393,7 +403,13 @@ PAGES.dashboard = () => {
   const need = saudisNeeded(r, st.saudization_target);
   const kpi = (l, v, h, cls = "", go = "") => `<div class="card kpi ${cls} ${go ? "click" : ""}" ${go ? `data-go="${go}"` : ""}><div class="l">${esc(l)}</div><div class="v num">${v}</div><div class="h">${esc(h || "")}</div></div>`;
 
-  $("#view").innerHTML = `
+  if (!D.employees.length) {
+    $("#view").innerHTML = `${welcome()}
+      <div class="card empty-state"><div class="big">📂</div><h2>${esc(t("empty.title"))}</h2><p>${esc(t("empty.desc"))}</p>
+      ${canEdit() ? `<a class="btn" href="#import">⬆ ${esc(t("empty.go"))}</a>` : ""}</div>`;
+    return;
+  }
+  $("#view").innerHTML = `${welcome()}
     ${head(t("p.dashboard"), `${t("today")}: ${fmtDate(new Date().toISOString())}`, `${FEATURES.ai ? `<button class="btn" id="aiIns">✦ ${esc(t("ai.generate"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`)}
     <div id="aiOut"></div>
     <div class="grid kpis">
@@ -492,6 +508,15 @@ async function aiPanel(box, mode, title, extra = {}) {
 }
 
 // ================= EMPLOYEES / LABOR =================
+const rowActions = {
+  k: "act", label: "", noExport: true, get: () => "",
+  render: (e) => `<span class="row-acts"><button class="btn ghost sm" data-prof="${e.id}">${esc(t("actions.view"))}</button>${canEdit() ? `<button class="btn ghost sm" data-edit="${e.id}">${esc(t("edit"))}</button>` : ""}</span>`,
+};
+function bindRowActions(root) {
+  $$("[data-prof]", root).forEach((b) => b.addEventListener("click", () => openProfile(+b.dataset.prof)));
+  $$("[data-edit]", root).forEach((b) => b.addEventListener("click", () => { const e = EMP.get(+b.dataset.edit); openForm("employees", e, { form: e.kind }); }));
+}
+
 function peoplePage(kind) {
   const rows = D.employees.filter((e) => e.kind === kind);
   const docsBy = new Map();
@@ -514,6 +539,7 @@ function peoplePage(kind) {
       { k: "total_salary", label: f("total_salary"), num: true, render: (e) => fmtNum(e.total_salary) },
       { k: "docs", label: t("doc.status"), get: (e) => t("st." + worst(e)), render: (e) => stPill(worst(e)), noExport: false },
       { k: "status", label: f("status"), get: (e) => t("emp." + e.status), render: (e) => `<span class="pill ${e.status === "left" ? "s-none" : "s-info"}">${esc(t("emp." + e.status))}</span>` },
+      rowActions,
     ]
     : [
       { k: "emp_no", label: f("emp_no"), num: true },
@@ -526,6 +552,7 @@ function peoplePage(kind) {
       { k: "basic_salary", label: f("basic_salary"), num: true, render: (e) => fmtNum(e.basic_salary) },
       { k: "docs", label: t("doc.status"), get: (e) => t("st." + worst(e)), render: (e) => stPill(worst(e)) },
       { k: "status", label: f("status"), get: (e) => t("emp." + e.status), render: (e) => `<span class="pill ${e.status === "left" ? "s-none" : "s-info"}">${esc(t("emp." + e.status))}</span>` },
+      rowActions,
     ];
   const title = t(kind === "staff" ? "p.employees" : "p.labor");
   $("#view").innerHTML = head(title, `${rows.filter((e) => e.status !== "left").length} ${t("emp.active")}`,
@@ -538,13 +565,14 @@ function peoplePage(kind) {
       : [{ k: "company", label: t("filter.company"), get: (e) => e.company }, { k: "nationality", label: t("filter.nat"), get: (e) => e.nationality }],
     chipGet: (e) => t("st." + worst(e)),
     onRow: (e) => openProfile(e.id),
+    afterDraw: bindRowActions,
     searchExtra: (e) => [e.name_ar, e.name_en, e.mobile, e.iqama_job].join(" "),
   });
 }
 PAGES.employees = () => peoplePage("staff");
 PAGES.labor = () => peoplePage("labor");
 
-function openProfile(id) {
+function openProfile(id, tab) {
   const e = EMP.get(id);
   if (!e) return;
   const st = settings();
@@ -552,6 +580,11 @@ function openProfile(id) {
   const deps = D.dependents.filter((d) => d.employee_id === id);
   const ins = D.insurance.filter((x) => x.employee_id === id);
   const p = e.platform || {};
+  const lvs = D.leaves.filter((l) => l.employee_id === id);
+  const mvs = D.movements.filter((x) => x.employee_id === id);
+  const fls = D.attachments.filter((x) => x.employee_id === id);
+  const bal = leaveBalance(e);
+  const counts = { docs: docs.length, files: fls.length, leaves: lvs.length, moves: mvs.length, deps: deps.length, ins: ins.length };
   const skip = new Set(["id", "kind", "platform", "created_at", "updated_at"]);
   const kv = Object.entries(e)
     .filter(([k, v]) => !skip.has(k) && v !== null && v !== "")
@@ -562,12 +595,31 @@ function openProfile(id) {
       <div style="display:flex;gap:6px">${canEdit() ? `<button class="btn sm" id="pEdit">${esc(t("edit"))}</button>` : ""}<button class="btn ghost sm" id="pPrint">${esc(t("print"))}</button><button class="x" data-close>×</button></div></header>
     <div class="body">
       <div class="print-head"><img src="/logo-navy.png" alt=""><div class="t"><b>${esc(empName(e))}</b>${esc(settings()[L() === "en" ? "hotel_name_en" : "hotel_name_ar"])} • ${esc(fmtDate(new Date().toISOString()))}</div></div>
-      <div class="tabs no-print">${["info", "docs", "deps", "ins", "plat"].map((k, i) => `<button data-tab="${k}" class="${i ? "" : "on"}">${esc({ info: t("details"), docs: t("p.documents"), deps: t("p.dependents"), ins: t("p.insurance"), plat: t("p.platforms") }[k])}${k === "docs" ? ` (${docs.length})` : k === "deps" ? ` (${deps.length})` : k === "ins" ? ` (${ins.length})` : ""}</button>`).join("")}</div>
+      <div class="tabs no-print">${["info", "docs", "files", "leaves", "moves", "deps", "ins", "plat"].map((k, i) => `<button data-tab="${k}" class="${i ? "" : "on"}">${esc({ info: t("details"), docs: t("p.documents"), files: t("files"), leaves: t("p.leaves"), moves: t("p.movements"), deps: t("p.dependents"), ins: t("p.insurance"), plat: t("p.platforms") }[k])}${counts[k] ? ` (${counts[k]})` : ""}</button>`).join("")}</div>
       <div data-pane="info"><div class="kv">${kv}</div></div>
       <div data-pane="docs" class="hidden">
         ${canEdit() ? `<button class="btn sm no-print" id="pAddDoc" style="margin-bottom:10px">+ ${esc(t("doc.add"))}</button>` : ""}
         <div class="tbl compact"><table><thead><tr><th>${esc(t("doc.type"))}</th><th>${esc(t("doc.number"))}</th><th>${esc(t("doc.issue"))}</th><th>${esc(t("doc.expiry"))}</th><th class="num">${esc(t("doc.days"))}</th><th>${esc(t("doc.status"))}</th></tr></thead>
         <tbody>${docs.map((d) => `<tr class="click" data-doc="${d.id}"><td>${esc(docLabel(d.doc_type))}</td><td class="num">${esc(d.number || "")}</td><td class="num">${esc(fmtDate(d.issue_date))}</td><td class="num">${esc(fmtDate(d.s.expiry || d.expiry_date))}</td><td class="num">${daysCell(d.s.days)}</td><td>${stPill(d.s.status)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
+      </div>
+      <div data-pane="files" class="hidden">
+        ${canEdit() ? `<div class="no-print" style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+          <select class="input" id="pFileDoc" style="width:auto"><option value="">${esc(t("files"))}</option>${docs.map((d) => `<option value="${d.id}">${esc(docLabel(d.doc_type))}</option>`).join("")}</select>
+          <label class="btn sm">⬆ ${esc(t("file.upload"))}<input type="file" id="pFile" accept=".pdf,image/*" hidden></label><span class="msg" id="pFileMsg"></span></div>` : ""}
+        ${fls.length ? `<div class="tbl compact"><table><thead><tr><th>${esc(f("name"))}</th><th>${esc(t("doc.type"))}</th><th class="num">KB</th><th>${esc(t("a.at"))}</th><th></th></tr></thead><tbody>
+          ${fls.map((x) => `<tr><td>📎 ${esc(x.file_name)}</td><td>${esc(x.document_id ? docLabel(D.documents.find((d) => d.id === x.document_id)?.doc_type) : "—")}</td><td class="num">${Math.ceil(x.size / 1024)}</td><td class="num">${esc(fmtDate(x.created_at))}</td>
+          <td><a class="btn ghost sm" href="/api/files?id=${x.id}" target="_blank" rel="noopener">${esc(t("file.open"))}</a> ${canEdit() ? `<button class="btn ghost sm" data-delfile="${x.id}">✕</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">${esc(t("file.none"))}</p>`}
+      </div>
+      <div data-pane="leaves" class="hidden">
+        <div class="kv" style="margin-bottom:12px"><div><span>${esc(t("lv.entitled"))}</span><b>${bal.entitled}</b></div><div><span>${esc(t("lv.used"))}</span><b>${bal.used}</b></div><div><span>${esc(t("lv.remaining"))}</span><b class="${bal.remaining < 0 ? "d-exp" : ""}">${bal.remaining}</b></div></div>
+        ${canEdit() ? `<button class="btn sm no-print" id="pAddLv" style="margin-bottom:10px">+ ${esc(t("lv.add"))}</button>` : ""}
+        <div class="tbl compact"><table><thead><tr><th>${esc(f("leave_type"))}</th><th>${esc(f("start_date"))}</th><th>${esc(f("end_date"))}</th><th class="num">${esc(f("days"))}</th><th>${esc(f("status"))}</th></tr></thead>
+        <tbody>${lvs.map((l) => `<tr class="click" data-lv="${l.id}"><td>${esc(t("lv." + l.leave_type))}</td><td class="num">${esc(fmtDate(l.start_date))}</td><td class="num">${esc(fmtDate(l.end_date))}</td><td class="num">${fmtNum(l.days)}</td><td>${lvPill(l.status)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
+      </div>
+      <div data-pane="moves" class="hidden">
+        ${canEdit() ? `<button class="btn sm no-print" id="pAddMv" style="margin-bottom:10px">+ ${esc(t("mv.add"))}</button>` : ""}
+        <div class="tbl compact"><table><thead><tr><th>${esc(f("move_date"))}</th><th>${esc(f("move_type"))}</th><th>${esc(f("from_value"))}</th><th>${esc(f("to_value"))}</th><th>${esc(f("notes"))}</th></tr></thead>
+        <tbody>${mvs.map((x) => `<tr class="click" data-mv="${x.id}"><td class="num">${esc(fmtDate(x.move_date))}</td><td>${esc(t("mv." + x.move_type))}</td><td>${esc(x.from_value || "")}</td><td>${esc(x.to_value || "")}</td><td class="wrap">${esc(x.notes || "")}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
       </div>
       <div data-pane="deps" class="hidden">
         ${canEdit() ? `<button class="btn sm no-print" id="pAddDep" style="margin-bottom:10px">+ ${esc(t("add"))}</button>` : ""}
@@ -594,6 +646,37 @@ function openProfile(id) {
   $("#pAddDep", m.root)?.addEventListener("click", () => { m.close(); openForm("dependents", null, { preset: { employee_id: String(id) } }); });
   $$("[data-doc]", m.root).forEach((tr) => tr.addEventListener("click", () => { m.close(); openForm("documents", D.documents.find((d) => d.id === +tr.dataset.doc)); }));
   $$("[data-dep]", m.root).forEach((tr) => tr.addEventListener("click", () => { m.close(); openForm("dependents", D.dependents.find((d) => d.id === +tr.dataset.dep)); }));
+  $("#pAddLv", m.root)?.addEventListener("click", () => { m.close(); openForm("leaves", null, { preset: { employee_id: String(id), leave_type: "annual", status: "pending" }, title: t("lv.add") }); });
+  $("#pAddMv", m.root)?.addEventListener("click", () => { m.close(); openForm("movements", null, { preset: { employee_id: String(id), move_date: new Date().toISOString().slice(0, 10) }, title: t("mv.add") }); });
+  $$("[data-lv]", m.root).forEach((tr) => tr.addEventListener("click", () => { m.close(); openForm("leaves", D.leaves.find((x) => x.id === +tr.dataset.lv)); }));
+  $$("[data-mv]", m.root).forEach((tr) => tr.addEventListener("click", () => { m.close(); openForm("movements", D.movements.find((x) => x.id === +tr.dataset.mv)); }));
+  $("#pFile", m.root)?.addEventListener("change", async (ev) => {
+    const file = ev.target.files[0];
+    if (!file) return;
+    const msg = $("#pFileMsg", m.root);
+    msg.className = "msg"; msg.textContent = t("loading");
+    try {
+      await api("/api/files", { method: "POST", headers: { "content-type": file.type || "application/octet-stream", "x-file-name": encodeURIComponent(file.name), "x-employee-id": String(id), "x-document-id": $("#pFileDoc", m.root).value }, body: file });
+      toast(t("saved")); m.close(); await reload(); renderNav(); openProfile(id, "files");
+    } catch (err) { msg.className = "msg err"; msg.textContent = err.message; }
+  });
+  $$("[data-delfile]", m.root).forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm(t("confirm.delete"))) return;
+    await api("/api/files", { method: "DELETE", body: { id: +b.dataset.delfile } });
+    toast(t("deleted")); m.close(); await reload(); openProfile(id, "files");
+  }));
+  if (tab) $(`[data-tab="${tab}"]`, m.root)?.click();
+}
+
+// ================= leaves helpers =================
+const lvPill = (s) => `<span class="pill ${s === "approved" ? "s-ok" : s === "rejected" ? "s-none" : "s-near"}">${esc(t("ls." + s))}</span>`;
+function leaveBalance(e) {
+  const year = String(new Date().getFullYear());
+  const used = D.leaves
+    .filter((l) => l.employee_id === e.id && l.leave_type === "annual" && l.status === "approved" && String(l.start_date).startsWith(year))
+    .reduce((a, l) => a + (Number(l.days) || 0), 0);
+  const entitled = Number(e.leave_days) || 0;
+  return { entitled, used, remaining: entitled - used };
 }
 
 function markCell(v) {
@@ -1058,6 +1141,202 @@ PAGES.audit = async () => {
   });
 };
 
+
+// ================= WELCOME / QUICK ADD =================
+function welcome() {
+  const h = new Date().getHours();
+  const first = String(ME.name || "").split(" ")[0];
+  return `<div class="welcome"><div><h2>${esc(t(h < 12 ? "welcome.morning" : "welcome.evening"))}، ${esc(first)} 👋</h2><p>${esc(t("welcome.sub"))}</p></div>
+    <div class="welcome-date">${esc(new Date().toLocaleDateString(L() === "en" ? "en-GB" : "ar-SA-u-ca-gregory-nu-latn", { weekday: "long", day: "numeric", month: "long", year: "numeric" }))}</div></div>`;
+}
+
+function setupQuickAdd() {
+  if (!canEdit()) return;
+  const wrap = document.createElement("div");
+  wrap.className = "fab no-print";
+  wrap.innerHTML = `<div class="fab-menu hidden">
+      <button data-q="staff">👤 ${esc(t("p.employees"))}</button>
+      <button data-q="labor">👷 ${esc(t("p.labor"))}</button>
+      <button data-q="doc">📄 ${esc(t("doc.add"))}</button>
+      <button data-q="leave">🌴 ${esc(t("lv.add"))}</button>
+      <button data-q="move">↕ ${esc(t("mv.add"))}</button>
+      <button data-q="app">🧑‍💼 ${esc(t("r.app.add"))}</button>
+    </div><button class="fab-btn" title="${esc(t("quick.add"))}">+</button>`;
+  document.body.appendChild(wrap);
+  const menu = $(".fab-menu", wrap);
+  $(".fab-btn", wrap).addEventListener("click", () => menu.classList.toggle("hidden"));
+  document.addEventListener("click", (e) => { if (!e.target.closest(".fab")) menu.classList.add("hidden"); });
+  const today = new Date().toISOString().slice(0, 10);
+  const go = {
+    staff: () => openForm("employees", null, { form: "staff", preset: { kind: "staff", status: "active" }, title: `${t("add")} — ${t("p.employees")}` }),
+    labor: () => openForm("employees", null, { form: "labor", preset: { kind: "labor", status: "active" }, title: `${t("add")} — ${t("p.labor")}` }),
+    doc: () => openForm("documents", null, { title: t("doc.add") }),
+    leave: () => openForm("leaves", null, { preset: { leave_type: "annual", status: "pending" }, title: t("lv.add") }),
+    move: () => openForm("movements", null, { preset: { move_date: today }, title: t("mv.add") }),
+    app: () => openForm("applicants", null, { preset: { stage: "new" }, title: t("r.app.add") }),
+  };
+  $$("[data-q]", wrap).forEach((b) => b.addEventListener("click", () => { menu.classList.add("hidden"); go[b.dataset.q](); }));
+}
+
+// ================= LEAVES =================
+PAGES.leaves = () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const year = String(new Date().getFullYear());
+  const tab = tableState.lvTab || "list";
+  const onToday = D.leaves.filter((l) => l.status === "approved" && l.start_date <= today && l.end_date >= today);
+  const pending = D.leaves.filter((l) => l.status === "pending");
+  const daysYear = D.leaves.filter((l) => l.status === "approved" && String(l.start_date).startsWith(year)).reduce((a, l) => a + (Number(l.days) || 0), 0);
+  $("#view").innerHTML = `${head(t("p.leaves"), "", `${canEdit() ? `<button class="btn" id="addLv">+ ${esc(t("lv.add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`)}
+    <div class="grid kpis">
+      <div class="card kpi blue"><div class="l">${esc(t("lv.ontoday"))}</div><div class="v num">${onToday.length}</div><div class="h">${esc(onToday.map((l) => empName(EMP.get(l.employee_id))).slice(0, 3).join("، "))}</div></div>
+      <div class="card kpi orange"><div class="l">${esc(t("lv.pendingk"))}</div><div class="v num">${pending.length}</div></div>
+      <div class="card kpi green"><div class="l">${esc(t("lv.daysyear"))}</div><div class="v num">${fmtNum(daysYear)}</div></div>
+    </div>
+    <div class="tabs no-print"><button data-t="list" class="${tab === "list" ? "on" : ""}">${esc(t("lv.list"))}</button><button data-t="bal" class="${tab === "bal" ? "on" : ""}">${esc(t("lv.balance"))}</button></div>
+    <div class="card" id="tb"></div>`;
+  $("#addLv")?.addEventListener("click", () => openForm("leaves", null, { preset: { leave_type: "annual", status: "pending" }, title: t("lv.add") }));
+  $$("[data-t]").forEach((b) => b.addEventListener("click", () => { tableState.lvTab = b.dataset.t; route(); }));
+  if (tab === "list") {
+    dataTable($("#tb"), {
+      id: "leaves", rows: D.leaves.filter((l) => EMP.has(l.employee_id)), exportName: t("p.leaves"),
+      cols: [
+        { k: "emp", label: f("employee_id"), get: (l) => empName(EMP.get(l.employee_id)), render: (l) => `<b>${esc(empName(EMP.get(l.employee_id)))}</b><br><small class="muted">${esc(EMP.get(l.employee_id)?.department || "")}</small>` },
+        { k: "type", label: f("leave_type"), get: (l) => t("lv." + l.leave_type) },
+        { k: "start_date", label: f("start_date"), num: true },
+        { k: "end_date", label: f("end_date"), num: true },
+        { k: "days", label: f("days"), num: true, render: (l) => fmtNum(l.days) },
+        { k: "status", label: f("status"), get: (l) => t("ls." + l.status), render: (l) => lvPill(l.status) },
+        { k: "act", label: "", noExport: true, get: () => "", render: (l) => canEdit() && l.status === "pending" ? `<span class="row-acts"><button class="btn success sm" data-ap="${l.id}">✓ ${esc(t("approve"))}</button><button class="btn ghost sm" data-rj="${l.id}">✕ ${esc(t("reject"))}</button></span>` : "" },
+      ],
+      chipGet: (l) => t("ls." + l.status),
+      filters: [{ k: "type", label: f("leave_type"), get: (l) => t("lv." + l.leave_type) }],
+      onRow: (l) => openForm("leaves", D.leaves.find((x) => x.id === l.id)),
+      afterDraw: (root) => {
+        const set = (id, status) => api("/api/rows?table=leaves", { method: "PUT", body: { id, status } }).then(() => { toast(t("saved")); return refresh(); });
+        $$("[data-ap]", root).forEach((b) => b.addEventListener("click", () => set(+b.dataset.ap, "approved")));
+        $$("[data-rj]", root).forEach((b) => b.addEventListener("click", () => set(+b.dataset.rj, "rejected")));
+      },
+    });
+  } else {
+    const rows = D.employees.filter((e) => e.kind === "staff" && e.status !== "left").map((e) => ({ ...e, bal: leaveBalance(e) }));
+    dataTable($("#tb"), {
+      id: "lvbal", rows, exportName: t("lv.balance"),
+      cols: [
+        { k: "name", label: f("name"), get: (e) => empName(e), render: (e) => `<b>${esc(empName(e))}</b>` },
+        { k: "department", label: f("department") },
+        { k: "ent", label: t("lv.entitled"), num: true, get: (e) => e.bal.entitled },
+        { k: "used", label: t("lv.used"), num: true, get: (e) => e.bal.used },
+        { k: "rem", label: t("lv.remaining"), num: true, get: (e) => e.bal.remaining, render: (e) => `<span class="${e.bal.remaining < 0 ? "d-exp" : ""}">${e.bal.remaining}</span>` },
+      ],
+      filters: [{ k: "department", label: t("filter.dept"), get: (e) => e.department }],
+      onRow: (e) => openProfile(e.id, "leaves"),
+    });
+  }
+};
+
+// ================= MOVEMENTS =================
+PAGES.movements = () => {
+  $("#view").innerHTML = `${head(t("p.movements"), "", `${canEdit() ? `<button class="btn" id="addMv">+ ${esc(t("mv.add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`)}<div class="card" id="tb"></div>`;
+  $("#addMv")?.addEventListener("click", () => openForm("movements", null, { preset: { move_date: new Date().toISOString().slice(0, 10) }, title: t("mv.add") }));
+  dataTable($("#tb"), {
+    id: "moves", rows: D.movements.filter((x) => EMP.has(x.employee_id)), exportName: t("p.movements"),
+    cols: [
+      { k: "move_date", label: f("move_date"), num: true },
+      { k: "emp", label: f("employee_id"), get: (x) => empName(EMP.get(x.employee_id)), render: (x) => `<b>${esc(empName(EMP.get(x.employee_id)))}</b>` },
+      { k: "type", label: f("move_type"), get: (x) => t("mv." + x.move_type) },
+      { k: "from_value", label: f("from_value") },
+      { k: "to_value", label: f("to_value") },
+      { k: "notes", label: f("notes"), wrap: true },
+    ],
+    chipGet: (x) => t("mv." + x.move_type),
+    onRow: (x) => openForm("movements", D.movements.find((m) => m.id === x.id)),
+  });
+};
+
+// ================= REPORTS =================
+const REPORTS = ["saud", "docs", "staff", "payroll", "leaves", "labor"];
+const REP_ICON = { saud: "📊", docs: "⏰", staff: "👥", payroll: "💰", leaves: "🌴", labor: "👷" };
+
+PAGES.reports = () => {
+  const which = tableState.report;
+  if (which && REPORTS.includes(which)) return showReport(which);
+  $("#view").innerHTML = `${head(t("rep.title"), t("rep.desc"))}
+    <div class="grid g3">${REPORTS.map((k) => `<div class="card report-card" data-rep="${k}"><div class="ri">${REP_ICON[k]}</div><h3>${esc(t("rep." + k))}</h3><p class="muted">${esc(t("rep." + k + ".d"))}</p><button class="btn sm">${esc(t("rep.open"))}</button></div>`).join("")}</div>`;
+  $$("[data-rep]").forEach((c) => c.addEventListener("click", () => { tableState.report = c.dataset.rep; route(); }));
+};
+
+function reportTable(headers, rows, foot) {
+  return `<table class="rtable"><thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${headers.length}" class="empty">${esc(t("none"))}</td></tr>`}</tbody>${foot ? `<tfoot><tr>${foot.map((c) => `<td>${c}</td>`).join("")}</tr></tfoot>` : ""}</table>`;
+}
+
+function buildReport(k) {
+  const st = settings();
+  const staff = D.employees.filter((e) => e.kind === "staff" && e.status !== "left");
+  const labor = D.employees.filter((e) => e.kind === "labor" && e.status !== "left");
+  const n = (v) => `<span class="num">${esc(v)}</span>`;
+  if (k === "saud") {
+    const r = ratio(staff);
+    const tgt = st.saudization_target;
+    const rows = groupRatio(staff, "department").map((g) => [esc(g.key), n(g.total), n(g.saudi), n(g.non_saudi), n(pct(g.pct)), ...(tgt ? [n(saudisNeeded(g, tgt))] : [])]);
+    return `<div class="rsum"><div><span>${esc(t("k.staff"))}</span><b>${r.total}</b></div><div><span>${esc(t("k.saudi"))}</span><b>${r.saudi}</b></div><div><span>${esc(t("k.nonsaudi"))}</span><b>${r.non_saudi}</b></div><div><span>${esc(t("k.ratio"))}</span><b>${pct(r.pct)}</b></div>${tgt ? `<div><span>${esc(t("k.target"))}</span><b>${tgt}%</b></div><div><span>${esc(t("k.needed"))}</span><b>${saudisNeeded(r, tgt)}</b></div>` : ""}</div>
+      ${reportTable([f("department"), t("total"), t("k.saudi"), t("k.nonsaudi"), t("k.ratio"), ...(tgt ? [t("s.need")] : [])], rows, [esc(t("rep.total")), n(r.total), n(r.saudi), n(r.non_saudi), n(pct(r.pct)), ...(tgt ? [n(saudisNeeded(r, tgt))] : [])])}
+      <p class="muted small">${esc(t("s.note"))}</p>`;
+  }
+  if (k === "docs") {
+    const al = buildAlerts(D.employees, D.documents, st);
+    const sec = (s) => {
+      const list = al.filter((a) => a.status === s);
+      return `<h3 class="rsec">${esc(t("st." + s))} (${list.length})</h3>` + reportTable([f("name"), f("id_no"), `${f("department")} / ${f("company")}`, t("doc.type"), t("doc.expiry"), t("doc.days")],
+        list.map((a) => [esc(empName(a.employee)), n(a.employee.id_no || ""), esc(a.employee.kind === "labor" ? a.employee.company || "" : a.employee.department || ""), esc(docLabel(a.doc.doc_type)), n(fmtDate(a.expiry)), `<span class="num ${a.days < 0 ? "d-exp" : "d-near"}">${a.days}</span>`]));
+    };
+    return sec("expired") + sec("near");
+  }
+  if (k === "staff") {
+    const groups = groupRatio(staff, "department");
+    return groups.map((g) => {
+      const list = staff.filter((e) => ((e.department && String(e.department).trim()) || "—") === g.key);
+      return `<h3 class="rsec">${esc(g.key)} (${list.length})</h3>` + reportTable([f("emp_no"), f("name"), f("job_title"), f("nationality"), f("join_date")],
+        list.map((e) => [n(e.emp_no || ""), esc(empName(e)), esc(e.job_title || ""), esc(e.nationality || ""), n(fmtDate(e.join_date))]));
+    }).join("");
+  }
+  if (k === "payroll") {
+    const sum = (key) => staff.reduce((a, e) => a + (Number(e[key]) || 0), 0);
+    return reportTable([f("emp_no"), f("name"), f("department"), f("basic_salary"), f("housing"), f("transport"), f("total_salary"), f("bank"), f("iban")],
+      staff.map((e) => [n(e.emp_no || ""), esc(empName(e)), esc(e.department || ""), n(fmtNum(e.basic_salary)), n(fmtNum(e.housing) || e.housing || ""), n(fmtNum(e.transport) || e.transport || ""), n(fmtNum(e.total_salary)), esc(e.bank || ""), n(e.iban || "")]),
+      [esc(t("rep.total")), "", "", n(fmtNum(sum("basic_salary"))), "", "", n(fmtNum(sum("total_salary"))), "", ""]);
+  }
+  if (k === "leaves") {
+    const year = String(new Date().getFullYear());
+    const bal = reportTable([f("name"), f("department"), t("lv.entitled"), t("lv.used"), t("lv.remaining")],
+      staff.map((e) => { const b = leaveBalance(e); return [esc(empName(e)), esc(e.department || ""), n(b.entitled), n(b.used), `<span class="num ${b.remaining < 0 ? "d-exp" : ""}">${b.remaining}</span>`]; }));
+    const lv = D.leaves.filter((l) => l.status === "approved" && String(l.start_date).startsWith(year) && EMP.has(l.employee_id));
+    return `<h3 class="rsec">${esc(t("lv.balance"))}</h3>${bal}<h3 class="rsec">${esc(t("lv.list"))} (${lv.length})</h3>` + reportTable([f("name"), f("leave_type"), f("start_date"), f("end_date"), f("days")],
+      lv.map((l) => [esc(empName(EMP.get(l.employee_id))), esc(t("lv." + l.leave_type)), n(fmtDate(l.start_date)), n(fmtDate(l.end_date)), n(fmtNum(l.days))]));
+  }
+  if (k === "labor") {
+    const stOf = (e, type) => { const d = D.documents.find((x) => x.employee_id === e.id && x.doc_type === type); return d ? docStatus(d, st) : { status: "none", expiry: null }; };
+    return groupRatio(labor, "company").map((g) => {
+      const list = labor.filter((e) => ((e.company && String(e.company).trim()) || "—") === g.key);
+      return `<h3 class="rsec">${esc(g.key)} (${list.length})</h3>` + reportTable([f("name"), f("id_no"), f("job_title"), t("set.iqama"), DOC_TYPES.ajeer[L()]],
+        list.map((e) => { const i = stOf(e, "iqama"), a = stOf(e, "ajeer"); return [esc(empName(e)), n(e.id_no || ""), esc(e.job_title || ""), `${n(fmtDate(i.expiry) || "")} ${stPill(i.status)}`, `${n(fmtDate(a.expiry) || "")} ${stPill(a.status)}`]; }));
+    }).join("");
+  }
+  return "";
+}
+
+function showReport(k) {
+  const st = settings();
+  const today = fmtDate(new Date().toISOString());
+  $("#printTitle").textContent = t("rep." + k);
+  $("#view").innerHTML = `${head(t("rep." + k), t("rep." + k + ".d"), `<button class="btn ghost" id="repBack">← ${esc(t("rep.back"))}</button><button class="btn" onclick="print()">🖨 ${esc(t("print"))} / PDF</button>`)}
+    <div class="report-doc">
+      <div class="report-head"><img src="/logo-navy.png" alt="Novotel"><div><b>${esc(t("rep." + k))}</b><span>${esc(st[L() === "en" ? "hotel_name_en" : "hotel_name_ar"])} — ${esc(t("hr"))}</span></div><div class="rmeta">${esc(t("rep.date"))}: <span class="num">${esc(today)}</span><br>${esc(t("rep.prepared"))}: ${esc(ME.name)}</div></div>
+      ${buildReport(k)}
+      <div class="report-sign"><div>${esc(t("rep.prepared"))}: ${esc(ME.name)}</div><div>${esc(t("rep.sign"))}: ____________________</div><div>${esc(t("rep.date"))}: <span class="num">${esc(today)}</span></div></div>
+    </div>`;
+  $("#repBack").addEventListener("click", () => { tableState.report = null; route(); });
+}
+
 // ================= global search =================
 function setupSearch() {
   const q = $("#gq"), res = $("#gres");
@@ -1131,6 +1410,7 @@ function setupIdleLock() {
   renderNav();
   setupSearch();
   setupIdleLock();
+  setupQuickAdd();
   $("#menuBtn").onclick = () => $("#side").classList.toggle("open");
   $("#langBtn").onclick = () => { setLang(L() === "ar" ? "en" : "ar"); paintChrome(); renderNav(); route(); };
   $("#themeBtn").onclick = () => {
