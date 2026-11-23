@@ -99,11 +99,21 @@ async function hmac(env, data) {
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(data)));
 }
 
+// Short fingerprint of the browser: a stolen cookie does not work from another device/browser.
+export async function uaHash(req) {
+  const ua = req.headers.get("user-agent") || "";
+  return hex(await crypto.subtle.digest("SHA-256", enc.encode(ua))).slice(0, 16);
+}
+export function clientIp(req) {
+  return (req.headers.get("x-real-ip") || (req.headers.get("x-forwarded-for") || "").split(",")[0] || "").trim().slice(0, 64) || null;
+}
+
 // Sliding session: `exp` moves forward on each authenticated request (idle limit),
 // `iat` stays fixed so a login never lasts longer than SESSION_HOURS.
-export async function sessionCookie(env, id, iat = Date.now()) {
-  const exp = Math.min(Date.now() + IDLE_MINUTES * 60e3, iat + SESSION_HOURS * 3600e3);
-  const payload = b64url(enc.encode(JSON.stringify({ id, iat, exp })));
+// `st` = login stage: "pw" (must change password), "setup" (must enable 2FA), "2fa" (code needed), "full".
+export async function sessionCookie(env, id, iat = Date.now(), extra = {}) {
+  const exp = Math.min(Date.now() + (extra.st && extra.st !== "full" ? 10 : IDLE_MINUTES) * 60e3, iat + SESSION_HOURS * 3600e3);
+  const payload = b64url(enc.encode(JSON.stringify({ id, iat, exp, st: extra.st || "full", sv: extra.sv || 0, ua: extra.ua || "" })));
   const token = `${payload}.${b64url(await hmac(env, payload))}`;
   const maxAge = Math.max(0, Math.floor((exp - Date.now()) / 1000));
   return `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
@@ -127,14 +137,20 @@ async function readToken(env, req) {
 }
 
 // Returns {id,name,role} or a 401/403 Response.
-export async function requireUser(env, req, { admin = false, role } = {}) {
+// `stages` lists the login stages allowed (default: fully signed in only).
+export async function requireUser(env, req, { admin = false, role, stages = ["full"] } = {}) {
   const need = admin ? "admin" : role || "viewer";
   const t = await readToken(env, req);
   if (!t) return json({ error: "يلزم تسجيل الدخول" }, 401);
   const u = (await getUsers(env))[t.id];
   if (!u) return json({ error: "يلزم تسجيل الدخول" }, 401, { "set-cookie": clearCookie() });
+  if ((t.sv || 0) !== (u.sv || 0) || (t.ua && t.ua !== (await uaHash(req)))) {
+    return json({ error: "انتهت الجلسة — سجّل دخول من جديد" }, 401, { "set-cookie": clearCookie() });
+  }
+  const st = t.st || "full";
+  if (!stages.includes(st)) return json({ error: "أكمل خطوات الدخول أولًا", stage: st }, 403);
   if (!roleAtLeast(u.role, need)) return json({ error: need === "admin" ? "هذه الصلاحية للمدير فقط" : "ما عندك صلاحية تعديل" }, 403);
-  const user = { id: t.id, name: u.name, role: u.role, iat: t.iat };
+  const user = { id: t.id, name: u.name, role: u.role, iat: t.iat, st, sv: u.sv || 0, ua: t.ua, ip: clientIp(req) };
   try {
     req.sessionUser = user;
   } catch {}

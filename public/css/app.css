@@ -516,3 +516,16 @@ tbody tr:hover .row-acts { opacity: 1; }
 .prof-photo { width: 64px; height: 64px; border-radius: 16px; object-fit: cover; border: 2px solid var(--line); }
 
 .prof-h { display: flex; align-items: center; gap: 12px; }
+
+/* ===== Login security steps ===== */
+.qr { width: 210px; height: 210px; margin: 10px auto; background: #fff; border-radius: 12px; padding: 6px; display: grid; place-items: center; }
+.qr svg { width: 100%; height: 100%; }
+.code-in { text-align: center; font-size: 26px; letter-spacing: 8px; font-weight: 700; }
+.setup-steps { padding-inline-start: 20px; line-height: 1.9; text-align: start; }
+.bk-codes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.bk-codes code { background: var(--surface-2); border: 1px dashed var(--line); border-radius: 8px; padding: 8px; text-align: center; font-size: 15px; letter-spacing: 1px; }
+.pw-meter { height: 5px; background: var(--surface-2); border-radius: 99px; margin-top: 6px; overflow: hidden; }
+.pw-meter i { display: block; height: 100%; width: 0; background: var(--red); transition: width .2s; }
+.pw-meter i.mid { background: var(--orange); } .pw-meter i.ok { background: var(--green); }
+.pw-rules { margin: 0 0 12px; padding-inline-start: 18px; text-align: start; }
+.login-card .sub { font-weight: 700; }

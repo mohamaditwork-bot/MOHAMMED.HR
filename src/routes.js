@@ -12,6 +12,8 @@ import { signRoute, appraisalsRoute } from "./appraisals.js";
 import { toTrash, trashRoute } from "./trash.js";
 import { renewContracts } from "./renewals.js";
 import { withSecrets, saveSecrets } from "./secrets.js";
+import { loginRoutes, rateLimited } from "./login.js";
+import { verifyTotp } from "./totp.js";
 import { askClaude, aiConfigured, aiProvider, buildContext } from "./ai.js";
 import { sendAlertEmail, emailConfigured } from "./alerts.js";
 import { DEFAULT_SETTINGS } from "../public/js/logic.js";
@@ -27,6 +29,8 @@ const SECURITY_HEADERS = {
   "x-robots-tag": "noindex, nofollow",
   "strict-transport-security": "max-age=31536000",
   "permissions-policy": "camera=(), microphone=(), geolocation=()",
+  "cross-origin-opener-policy": "same-origin",
+  "cross-origin-resource-policy": "same-origin",
 };
 
 // Dates come back from Postgres as Date objects (or full timestamps): send plain YYYY-MM-DD.
@@ -47,8 +51,8 @@ async function audit(env, user, action, entity, entityId, details) {
   try {
     const db = await getDb(env);
     await db.query(
-      "INSERT INTO audit (user_id, user_name, action, entity, entity_id, details) VALUES ($1,$2,$3,$4,$5,$6)",
-      [user?.id ?? null, user?.name ?? null, action, entity, entityId == null ? null : String(entityId), details ? JSON.stringify(details) : null]
+      "INSERT INTO audit (user_id, user_name, action, entity, entity_id, details, ip) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+      [user?.id ?? null, user?.name ?? null, action, entity, entityId == null ? null : String(entityId), details ? JSON.stringify(details) : null, user?.ip ?? null]
     );
   } catch (e) {
     console.error("audit failed", e);
@@ -73,51 +77,14 @@ async function loadAll(env) {
 }
 
 // ---------- auth ----------
-async function login(req, env) {
-  const body = await readJson(req);
-  if (!body) return json({ error: "بيانات غير صحيحة" }, 400);
-  const id = String(body.id || "").trim();
-  const password = String(body.password || "");
-  if (!ID_RE.test(id) || !password) return json({ error: "اكتب رقم الهوية وكلمة المرور" }, 400);
-  const until = await isLocked(env, id);
-  if (until) {
-    const mins = Math.ceil((until - Date.now()) / 60e3);
-    return json({ error: `تم إيقاف الدخول مؤقتًا بسبب محاولات خاطئة. حاول بعد ${mins} دقيقة` }, 429);
-  }
-  const u = (await getUsers(env))[id];
-  if (!u || !(await verifyPassword(password, u.hash))) {
-    await recordFail(env, id);
-    return json({ error: "رقم الهوية أو كلمة المرور غير صحيحة" }, 401);
-  }
-  await clearFails(env, id);
-  await audit(env, { id, name: u.name }, "login");
-  return json({ ok: true, user: { id, name: u.name, role: u.role } }, 200, { "set-cookie": await sessionCookie(env, id) });
-}
 
-async function me(req, env) {
-  const u = await requireUser(env, req);
-  if (u instanceof Response) return u;
-  return json({ user: { id: u.id, name: u.name, role: u.role }, features: { ai: aiConfigured(env), ai_provider: aiProvider(env), email: emailConfigured(env) } });
-}
 
-async function password(req, env) {
-  const u = await requireUser(env, req);
-  if (u instanceof Response) return u;
-  const { current, next } = (await readJson(req)) || {};
-  const all = await getUsers(env);
-  if (!(await verifyPassword(String(current || ""), all[u.id].hash))) return json({ error: "كلمة المرور الحالية غير صحيحة" }, 400);
-  if (!next || String(next).length < 6) return json({ error: "كلمة المرور الجديدة 6 خانات على الأقل" }, 400);
-  all[u.id].hash = await hashPassword(String(next));
-  await saveUsers(env, all);
-  await audit(env, u, "password_change");
-  return json({ ok: true });
-}
 
 async function users(req, env) {
   const me = await requireUser(env, req, { admin: true });
   if (me instanceof Response) return me;
   const all = await getUsers(env);
-  const list = () => json({ users: Object.entries(all).map(([id, u]) => ({ id, name: u.name, role: u.role })) });
+  const list = () => json({ users: Object.entries(all).map(([id, u]) => ({ id, name: u.name, role: u.role, twofa: !!u.totp?.on, must_change: !!u.must_change })) });
   if (req.method === "GET") return list();
   const body = await readJson(req);
   if (!body) return json({ error: "بيانات غير صحيحة" }, 400);
@@ -134,6 +101,13 @@ async function users(req, env) {
     await audit(env, me, "delete", "user", id);
     return list();
   }
+  if (body.reset2fa && all[id]) {
+    delete all[id].totp; delete all[id].backup; delete all[id].totp_pending;
+    all[id].sv = (all[id].sv || 0) + 1;
+    await saveUsers(env, all);
+    await audit(env, me, "reset_2fa", "user", id);
+    return list();
+  }
   const name = String(body.name || all[id]?.name || "").trim();
   if (!name) return json({ error: "اكتب الاسم" }, 400);
   const role = ROLES.includes(body.role) ? body.role : "viewer";
@@ -144,7 +118,7 @@ async function users(req, env) {
   const existed = Boolean(all[id]);
   const removedList = (await env.HR.get("users_removed", "json")) || [];
   if (removedList.includes(id)) await env.HR.put("users_removed", JSON.stringify(removedList.filter((x) => x !== id)));
-  all[id] = { name, role, hash: pw ? await hashPassword(pw) : all[id].hash };
+  all[id] = { ...(all[id] || {}), name, role, hash: pw ? await hashPassword(pw) : all[id].hash, ...(pw ? { must_change: true, sv: (all[id]?.sv || 0) + 1 } : {}) };
   await saveUsers(env, all);
   await clearFails(env, id);
   await audit(env, me, existed ? "update" : "create", "user", id, { name, role });
@@ -276,7 +250,6 @@ async function files(req, env) {
       headers: {
         "content-type": f.mime,
         "content-disposition": `${f.mime === DOCX ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(f.file_name)}`,
-        "content-security-policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; plugin-types application/pdf; sandbox",
         "cache-control": "private, no-store",
       },
     });
@@ -470,12 +443,34 @@ async function cron(req, env) {
   return json({ ...out, renewed: renew?.renewed.length ?? 0 });
 }
 
+const LR = loginRoutes({ audit, getSettings });
+const featureFlags = (env) => ({ features: { ai: aiConfigured(env), ai_provider: aiProvider(env), email: emailConfigured(env) } });
+const me = (req, env) => LR.me(req, env, featureFlags);
+
+// Full backup (admin + a fresh two-factor code): every table except file contents.
+async function backup(req, env) {
+  const u = await requireUser(env, req, { admin: true });
+  if (u instanceof Response) return u;
+  if (await rateLimited(env, req, "backup", 10)) return json({ error: "محاولات كثيرة" }, 429);
+  const { code } = (await readJson(req)) || {};
+  const all = await getUsers(env);
+  const rec = all[u.id];
+  const step = await verifyTotp(rec.totp?.secret, code, rec.totp?.last ?? -1);
+  if (step < 0) return json({ error: "رمز التحقق غير صحيح" }, 400);
+  rec.totp.last = step;
+  await saveUsers(env, all);
+  const data = await loadAll(env);
+  delete data.storage;
+  await audit(env, u, "backup_download");
+  return json({ ok: true, at: new Date().toISOString(), data });
+}
+
 async function appraisals(req, env) {
   const u = await requireUser(env, req, { role: req.method === "GET" ? "viewer" : "editor" });
   if (u instanceof Response) return u;
   return appraisalsRoute(req, env, u, audit);
 }
-const sign = (req, env) => signRoute(req, env, audit);
+const sign = async (req, env) => ((await rateLimited(env, req, "sign", 60)) ? json({ error: "محاولات كثيرة — حاول لاحقًا" }, 429) : signRoute(req, env, audit));
 async function secrets(req, env) {
   const u = await requireUser(env, req, { admin: true });
   if (u instanceof Response) return u;
@@ -500,10 +495,12 @@ async function trash(req, env) {
 }
 
 const ROUTES = {
-  "/api/login": { POST: login },
+  "/api/login": { POST: LR.login },
+  "/api/twofa": { GET: LR.twofa, POST: LR.twofa },
+  "/api/backup": { POST: backup },
   "/api/logout": { POST: async () => json({ ok: true }, 200, { "set-cookie": clearCookie() }) },
   "/api/me": { GET: me },
-  "/api/password": { POST: password },
+  "/api/password": { POST: LR.password },
   "/api/users": { GET: users, POST: users, DELETE: users },
   "/api/all": { GET: all },
   "/api/rows": { GET: rows, POST: rows, PUT: rows, DELETE: rows },
@@ -539,8 +536,8 @@ export async function handle(req, rawEnv, path) {
     }
   }
   // Activity keeps the session alive: refresh the cookie on every successful signed-in request.
-  if (authed && res.status < 400 && req.sessionUser) {
-    res.headers.append("set-cookie", await sessionCookie(env, req.sessionUser.id, req.sessionUser.iat));
+  if (authed && res.status < 400 && req.sessionUser && req.sessionUser.st === "full" && !res.headers.get("set-cookie")) {
+    res.headers.append("set-cookie", await sessionCookie(env, req.sessionUser.id, req.sessionUser.iat, { st: "full", sv: req.sessionUser.sv, ua: req.sessionUser.ua }));
   }
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v);
   return res;
