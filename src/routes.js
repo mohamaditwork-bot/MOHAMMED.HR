@@ -367,7 +367,10 @@ async function ai(req, env) {
     console.error("AI error", e?.status, e?.message);
     if (e.status === 503) return json({ error: "الذكاء الاصطناعي غير مفعّل — المدير يضيف مفتاح Google Gemini من الإعدادات ← مفاتيح الخدمات" }, 503);
     if (e.status === 429) return json({ error: e.free ? "انتهى الحد المسموح من Gemini لهذي الدقيقة أو اليوم — حاول بعد شوي أو بكرة" : "ضغط على خدمة الذكاء، حاول بعد قليل" }, 429);
-    return json({ error: "تعذر الاتصال بخدمة الذكاء الاصطناعي" }, 502);
+    // Show the provider's own reason (never contains the key) so a bad/restricted key is easy to spot.
+    const why = String(e?.message || "").replace(/AIza[\w-]+|AQ\.[\w.-]+|sk-ant-[\w-]+/g, "•••").slice(0, 300);
+    const hint = e.status === 400 || e.status === 401 || e.status === 403 ? " — تأكد إن مفتاح Gemini صحيح ومفعّل (أنشئ مفتاح جديد من aistudio.google.com/apikey واحفظه من الإعدادات)" : "";
+    return json({ error: `تعذر الاتصال بخدمة الذكاء الاصطناعي${why ? ` (${why})` : ""}${hint}` }, 502);
   }
 }
 

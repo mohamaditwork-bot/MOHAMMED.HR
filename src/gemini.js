@@ -29,14 +29,15 @@ export async function askGemini(env, args) {
   throw last;
 }
 
+// Native Gemini API with the x-goog-api-key header — the same call that validated the key when it was saved.
 async function askGeminiOnce(env, model, { system, messages, maxTokens = 8000 }) {
-  const r = await fetch(`${BASE}/openai/chat/completions`, {
+  const r = await fetch(`${BASE}/models/${model}:generateContent`, {
     method: "POST",
-    headers: { authorization: `Bearer ${env.GEMINI_API_KEY}`, "x-goog-api-key": env.GEMINI_API_KEY, "content-type": "application/json" },
+    headers: { "x-goog-api-key": env.GEMINI_API_KEY, "content-type": "application/json" },
     body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      messages: [{ role: "system", content: system }, ...messages],
+      systemInstruction: { parts: [{ text: system }] },
+      contents: messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: String(m.content || "") }] })),
+      generationConfig: { maxOutputTokens: maxTokens },
     }),
   });
   const body = await r.json().catch(() => ({}));
@@ -45,6 +46,13 @@ async function askGeminiOnce(env, model, { system, messages, maxTokens = 8000 })
     err.status = r.status;
     throw err;
   }
-  const choice = body.choices?.[0];
-  return { text: String(choice?.message?.content || "").trim(), truncated: choice?.finish_reason === "length" };
+  const c = body.candidates?.[0];
+  const text = (c?.content?.parts || []).map((p) => p.text || "").join("").trim();
+  if (!text) {
+    const why = body.promptFeedback?.blockReason || c?.finishReason || "empty";
+    const err = new Error(`Gemini returned no text (${why})`);
+    err.status = 502;
+    throw err;
+  }
+  return { text, truncated: c?.finishReason === "MAX_TOKENS" };
 }
