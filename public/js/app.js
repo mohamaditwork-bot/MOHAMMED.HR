@@ -1055,7 +1055,7 @@ PAGES.assistant = () => {
   $("#view").innerHTML = `
     <div class="ai-shell">
       <div class="ai-top">
-        <div class="ai-id"><div class="ai-orb">✦</div><div><b>${esc(t("ai.title"))}</b><span class="ai-status ${on ? "on" : "off"}">● ${esc(t(on ? "ai.online" : "ai.offline"))}${on ? ` — ${FEATURES.ai_provider === "gemini" ? "Google Gemini (مجاني)" : "Claude"}` : ""}</span></div></div>
+        <div class="ai-id"><div class="ai-orb">✦</div><div><b>${esc(t("ai.title"))}</b><span class="ai-status ${on ? "on" : "off"}">● ${esc(t(on ? "ai.online" : "ai.offline"))}${on ? ` — ${FEATURES.ai_provider === "gemini" ? "Google Gemini" : "Claude"}` : ""}</span></div></div>
         <div class="ai-actions">${chatLog.length ? `<button class="btn ghost sm" id="aiNew">＋ ${esc(t("ai.new"))}</button>` : ""}${!on && isAdmin() ? `<a class="btn sm" href="#settings">🔑 ${esc(t("ai.enable"))}</a>` : ""}</div>
       </div>
       ${on ? "" : `<div class="note">${esc(t("ai.off"))}</div>`}
@@ -1186,7 +1186,7 @@ PAGES.settings = () => {
       <div class="key-in"><input class="input" id="bkCode" inputmode="numeric" maxlength="6" placeholder="${esc(t("sec.code"))}" dir="ltr" style="max-width:200px"><button class="btn" id="bkGo">⬇ ${esc(t("sec.backup.go"))}</button></div><p class="msg" id="bkMsg"></p>
       ${D.storage ? `<p class="muted small">${esc(t("sec.storage"))}: <b class="num">${(D.storage / 1048576).toFixed(0)} MB</b> / 512 MB ${D.storage > 400 * 1048576 ? `<span class="pill s-expired">${esc(t("sec.storage.warn"))}</span>` : ""}</p>` : ""}</div>` : ""}
     ${isAdmin() ? `<div class="card keys-card" style="margin-top:18px"><h3>🔑 ${esc(t("k.title"))}</h3><p class="muted" style="margin-top:0">${esc(t("k.desc"))}</p>
-      <div class="key-row key-main"><div class="key-h"><b>✦ ${esc(t("k.gem"))}</b> <span class="pill s-info">${esc(t("k.free"))}</span> <span id="kGeSt"></span></div>
+      <div class="key-row key-main"><div class="key-h"><b>✦ ${esc(t("k.gem"))}</b> <span id="kGeSt"></span></div>
         <ol class="key-steps"><li>${t("k.gem.1")}</li><li>${t("k.gem.2")}</li><li>${t("k.gem.3")}</li></ol>
         <div class="key-in"><input class="input" type="password" id="kGe" placeholder="AIza... / AQ...." dir="ltr" autocomplete="off"><button class="btn" id="kGeSave">${esc(t("k.save"))}</button><button class="btn ghost sm" id="kGeDel">${esc(t("k.remove"))}</button></div>
         <p class="muted small" style="margin:6px 0 0">🔒 ${esc(t("k.gem.priv"))}</p><p class="msg" id="kGeMsg"></p></div>
