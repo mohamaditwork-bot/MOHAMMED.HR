@@ -137,10 +137,11 @@ export function matchFolder(folder, files, employees) {
   let best = null;
   for (const e of employees) {
     const fs = scoreName(leaf, e);
-    let ff = 0;
-    for (const n of own) ff = Math.max(ff, scoreName(n, e));
+    let ff = 0, sum = 0;
+    for (const n of own) { const v = scoreName(n, e); ff = Math.max(ff, v); sum += v; }
     if (fs < 0.6 && ff < 0.6) continue;
-    const total = fs + ff * 0.8 + (e.kind === "staff" ? 0.05 : 0);
+    // Best single file + how consistently ALL files point to this person.
+    const total = fs + ff * 0.8 + (own.length ? (sum / own.length) * 0.6 : 0) + (e.kind === "staff" ? 0.05 : 0);
     if (!best || total > best.total) best = { emp: e, score: Math.max(fs, ff), total, how: fs >= 0.6 ? "folder" : "files" };
   }
   if (best) return { emp: best.emp, score: best.score, how: best.how };
