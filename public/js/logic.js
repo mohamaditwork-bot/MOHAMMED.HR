@@ -19,7 +19,7 @@ export const DEFAULT_SETTINGS = {
   contract_autorenew: true,
   contract_renew_days: 75,
   saudization_target: null,
-  alert_emails: "",
+  owner_email: null,
   alert_days: [30, 14, 7, 1],
   hotel_name_ar: "نوفوتيل المدينة المنورة",
   hotel_name_en: "Novotel Al Madinah",

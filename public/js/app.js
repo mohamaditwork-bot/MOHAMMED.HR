@@ -535,53 +535,70 @@ function bindRowActions(root) {
 
 function peoplePage(kind) {
   const rows = D.employees.filter((e) => e.kind === kind);
+  // Every document's status per employee, most urgent first — so the column can say WHICH document.
+  const RANK = { expired: 3, near: 2, none: 1, ok: 0, used: 0 };
   const docsBy = new Map();
   for (const d of D.documents) {
     const s = docStatus(d, settings());
-    const cur = docsBy.get(d.employee_id);
-    const rank = { expired: 3, near: 2, none: 1, ok: 0 }[s.status];
-    if (!cur || rank > cur.rank) docsBy.set(d.employee_id, { rank, s });
+    if (!RANK[s.status]) continue;
+    (docsBy.get(d.employee_id) || docsBy.set(d.employee_id, []).get(d.employee_id)).push({ d, s, rank: RANK[s.status] });
   }
-  const worst = (e) => docsBy.get(e.id)?.s.status || "ok";
+  for (const list of docsBy.values()) list.sort((a, b) => b.rank - a.rank || (a.s.days ?? 0) - (b.s.days ?? 0));
+  const issues = (e) => docsBy.get(e.id) || [];
+  const worst = (e) => issues(e)[0]?.s.status || "ok";
+  const chipKey = (e) => ({ expired: "pp.chip.expired", near: "pp.chip.near", none: "pp.chip.none" }[worst(e)] || "pp.chip.ok");
+  const issueText = ({ d, s }) => s.status === "none"
+    ? t("pp.nodate").replace("{d}", docLabel(d.doc_type))
+    : `${docLabel(d.doc_type)} ${t(s.status === "expired" ? "pp.expired" : "pp.near")} ${fmtDate(s.expiry)}`;
+  const docCell = (e) => {
+    const list = issues(e);
+    if (!list.length) return `<span class="pill s-ok">✔ ${esc(t("pp.allok"))}</span>`;
+    const first = list[0];
+    const icon = { expired: "⛔", near: "⏳", none: "⚪" }[first.s.status];
+    return `<button class="doc-issue s-${first.s.status}" data-docs="${e.id}" title="${esc(list.map(issueText).join("\n"))}">${icon} ${esc(issueText(first))}${list.length > 1 ? ` <b>+${list.length - 1}</b>` : ""}</button>`;
+  };
   const cols = kind === "staff"
     ? [
       { k: "emp_no", label: f("emp_no"), num: true },
       { k: "name", label: f("name"), get: (e) => empName(e), render: (e) => `<b>${esc(empName(e))}</b><br><small class="muted">${esc(L() === "en" ? e.name_ar : e.name_en || "")}</small>` },
+      { k: "docs", label: t("pp.docs"), get: (e) => issues(e).map(issueText).join(" • ") || t("pp.allok"), render: docCell, wrap: true },
       { k: "id_no", label: f("id_no"), num: true },
       { k: "nationality", label: f("nationality"), render: (e) => `${esc(e.nationality || "")}${isSaudi(e.nationality) ? ' <span class="pill s-ok">KSA</span>' : ""}` },
       { k: "department", label: f("department") },
       { k: "job_title", label: f("job_title") },
       { k: "join_date", label: f("join_date"), num: true },
       { k: "total_salary", label: f("total_salary"), num: true, render: (e) => fmtNum(e.total_salary) },
-      { k: "docs", label: t("doc.status"), get: (e) => t("st." + worst(e)), render: (e) => stPill(worst(e)), noExport: false },
       { k: "status", label: f("status"), get: (e) => t("emp." + e.status), render: (e) => `<span class="pill ${e.status === "left" ? "s-none" : "s-info"}">${esc(t("emp." + e.status))}</span>` },
       rowActions,
     ]
     : [
       { k: "emp_no", label: f("emp_no"), num: true },
       { k: "name", label: f("name"), get: (e) => empName(e), render: (e) => `<b>${esc(empName(e))}</b>` },
+      { k: "docs", label: t("pp.docs"), get: (e) => issues(e).map(issueText).join(" • ") || t("pp.allok"), render: docCell, wrap: true },
       { k: "id_no", label: f("id_no"), num: true },
       { k: "company", label: f("company") },
       { k: "nationality", label: f("nationality") },
       { k: "department", label: f("department") },
       { k: "job_title", label: f("job_title") },
       { k: "basic_salary", label: f("basic_salary"), num: true, render: (e) => fmtNum(e.basic_salary) },
-      { k: "docs", label: t("doc.status"), get: (e) => t("st." + worst(e)), render: (e) => stPill(worst(e)) },
       { k: "status", label: f("status"), get: (e) => t("emp." + e.status), render: (e) => `<span class="pill ${e.status === "left" ? "s-none" : "s-info"}">${esc(t("emp." + e.status))}</span>` },
       rowActions,
     ];
   const title = t(kind === "staff" ? "p.employees" : "p.labor");
   $("#view").innerHTML = head(title, `${rows.filter((e) => e.status !== "left").length} ${t("emp.active")}`,
-    `${canEdit() ? `<button class="btn" id="addEmp">+ ${esc(t("add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div>`;
+    `${canEdit() ? `<button class="btn" id="addEmp">+ ${esc(t("add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div><p class="muted small legend">${t("pp.legend")}</p>`;
   $("#addEmp")?.addEventListener("click", () => openForm("employees", null, { form: kind, preset: { kind, status: "active" }, title: `${t("add")} — ${title}` }));
   dataTable($("#tb"), {
     id: "people-" + kind, rows, cols, exportName: title,
     filters: kind === "staff"
       ? [{ k: "department", label: t("filter.dept"), get: (e) => e.department }, { k: "nationality", label: t("filter.nat"), get: (e) => e.nationality }]
       : [{ k: "company", label: t("filter.company"), get: (e) => e.company }, { k: "nationality", label: t("filter.nat"), get: (e) => e.nationality }],
-    chipGet: (e) => t("st." + worst(e)),
+    chipGet: (e) => t(chipKey(e)),
     onRow: (e) => openProfile(e.id),
-    afterDraw: bindRowActions,
+    afterDraw: (root) => {
+      bindRowActions(root);
+      $$("[data-docs]", root).forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); openProfile(+b.dataset.docs, "docs"); }));
+    },
     searchExtra: (e) => [e.name_ar, e.name_en, e.mobile, e.iqama_job].join(" "),
   });
 }
@@ -1055,14 +1072,14 @@ PAGES.assistant = () => {
   $("#view").innerHTML = `
     <div class="ai-shell">
       <div class="ai-top">
-        <div class="ai-id"><div class="ai-orb">✦</div><div><b>${esc(t("ai.title"))}</b><span class="ai-status ${on ? "on" : "off"}">● ${esc(t(on ? "ai.online" : "ai.offline"))}</span></div></div>
+        <div class="ai-id"><div class="ai-orb">✦</div><div><b>${esc(t("ai.title"))}</b><span class="ai-status ${on ? "on" : "off"}">● ${esc(t(on ? "ai.online" : "ai.offline"))}${on ? ` — ${FEATURES.ai_provider === "gemini" ? "Google Gemini (مجاني)" : "Claude"}` : ""}</span></div></div>
         <div class="ai-actions">${chatLog.length ? `<button class="btn ghost sm" id="aiNew">＋ ${esc(t("ai.new"))}</button>` : ""}${!on && isAdmin() ? `<a class="btn sm" href="#settings">🔑 ${esc(t("ai.enable"))}</a>` : ""}</div>
       </div>
       ${on ? "" : `<div class="note">${esc(t("ai.off"))}</div>`}
       <div class="ai-log" id="log"></div>
       <div class="ai-quick" id="quick">${AI_QUICK.map(([k, i]) => `<button class="ai-q" data-q="${k}" ${on ? "" : "disabled"}><span>${i}</span>${esc(t("ai.q." + k))}</button>`).join("")}</div>
       <form id="cf" class="ai-input"><textarea class="input" id="cq" rows="1" placeholder="${esc(t("ai.placeholder"))}" ${on ? "" : "disabled"}></textarea><button class="btn ai-send" ${on ? "" : "disabled"} aria-label="${esc(t("ai.send"))}">➤</button></form>
-      <p class="muted small ai-privacy">🔒 ${esc(t("ai.privacy"))}</p>
+      <p class="muted small ai-privacy">🔒 ${esc(t(FEATURES.ai_provider === "gemini" ? "ai.privacy.strict" : "ai.privacy"))}</p>
     </div>`;
   const log = $("#log");
   const paint = () => {
@@ -1175,12 +1192,18 @@ PAGES.settings = () => {
         </div></div>
       <div class="card"><h3>✉ ${esc(t("set.emails"))}</h3>
         ${FEATURES.email ? `<p class="muted" style="margin-top:0">${esc(t("set.daily"))}</p>` : `<div class="note">${esc(t("set.email.off"))}</div>`}
-        <textarea class="input" id="sE" dir="ltr" placeholder="hr@example.com, manager@example.com">${esc(st.alert_emails || "")}</textarea>
+        <label class="fl">${esc(t("set.owner"))}</label>
+        <input class="input" type="email" id="sE" dir="ltr" placeholder="name@gmail.com" value="${esc(st.owner_email || "")}" ${isAdmin() ? "" : "disabled"}>
+        <div class="note ok-note" style="margin-top:10px">🔒 ${esc(t("set.onlyme"))}</div>
         <div style="margin-top:10px"><button class="btn ghost" id="sTest" ${FEATURES.email ? "" : "disabled"}>${esc(t("set.test"))}</button> <span class="msg" id="sTm"></span></div></div>
     </div>
     <button class="btn" id="sSave">${esc(t("save"))}</button> <span class="msg" id="sm"></span>
     ${isAdmin() ? `<div class="card keys-card" style="margin-top:18px"><h3>🔑 ${esc(t("k.title"))}</h3><p class="muted" style="margin-top:0">${esc(t("k.desc"))}</p>
-      <div class="key-row"><div class="key-h"><b>✦ ${esc(t("k.ai"))}</b> <span id="kAiSt"></span></div>
+      <div class="key-row key-main"><div class="key-h"><b>✦ ${esc(t("k.gem"))}</b> <span class="pill s-info">${esc(t("k.free"))}</span> <span id="kGeSt"></span></div>
+        <ol class="key-steps"><li>${t("k.gem.1")}</li><li>${t("k.gem.2")}</li><li>${t("k.gem.3")}</li></ol>
+        <div class="key-in"><input class="input" type="password" id="kGe" placeholder="AIza..." dir="ltr" autocomplete="off"><button class="btn" id="kGeSave">${esc(t("k.save"))}</button><button class="btn ghost sm" id="kGeDel">${esc(t("k.remove"))}</button></div>
+        <p class="muted small" style="margin:6px 0 0">🔒 ${esc(t("k.gem.priv"))}</p><p class="msg" id="kGeMsg"></p></div>
+      <div class="key-row"><div class="key-h"><b>✦ ${esc(t("k.ai"))}</b> <span class="pill s-none">${esc(t("k.paid"))}</span> <span id="kAiSt"></span></div>
         <ol class="key-steps"><li>${t("k.ai.1")}</li><li>${t("k.ai.2")}</li><li>${t("k.ai.3")}</li></ol>
         <div class="key-in"><input class="input" type="password" id="kAi" placeholder="sk-ant-..." dir="ltr" autocomplete="off"><button class="btn" id="kAiSave">${esc(t("k.save"))}</button><button class="btn ghost sm" id="kAiDel">${esc(t("k.remove"))}</button></div><p class="msg" id="kAiMsg"></p></div>
       <div class="key-row"><div class="key-h"><b>✉ ${esc(t("k.email"))}</b> <span id="kReSt"></span></div>
@@ -1189,7 +1212,7 @@ PAGES.settings = () => {
     </div>` : ""}`;
   if (isAdmin()) {
     const pill = (src) => src ? `<span class="pill s-ok">✔ ${esc(t(src === "hosting" ? "k.on.host" : "k.on.site"))}</span>` : `<span class="pill s-expired">${esc(t("k.off"))}</span>`;
-    api("/api/settings").then((o) => { $("#kAiSt").innerHTML = pill(o.keys?.ai); $("#kReSt").innerHTML = pill(o.keys?.email); }).catch(() => {});
+    api("/api/settings").then((o) => { $("#kGeSt").innerHTML = pill(o.keys?.gemini); $("#kAiSt").innerHTML = pill(o.keys?.ai); $("#kReSt").innerHTML = pill(o.keys?.email); }).catch(() => {});
     const saveKey = async (field, inp, msg, value) => {
       const m = $(msg); m.className = "msg"; m.textContent = t("k.checking");
       try {
@@ -1199,6 +1222,8 @@ PAGES.settings = () => {
         toast(value ? "✔ " + t("k.saved") : t("k.removed"));
       } catch (e) { m.className = "msg err"; m.textContent = e.message; }
     };
+    $("#kGeSave").onclick = () => $("#kGe").value.trim() && saveKey("gemini_key", "#kGe", "#kGeMsg", $("#kGe").value.trim());
+    $("#kGeDel").onclick = () => confirm(t("confirm.delete")) && saveKey("gemini_key", "#kGe", "#kGeMsg", "");
     $("#kAiSave").onclick = () => $("#kAi").value.trim() && saveKey("anthropic_key", "#kAi", "#kAiMsg", $("#kAi").value.trim());
     $("#kReSave").onclick = () => $("#kRe").value.trim() && saveKey("resend_key", "#kRe", "#kReMsg", $("#kRe").value.trim());
     $("#kAiDel").onclick = () => confirm(t("confirm.delete")) && saveKey("anthropic_key", "#kAi", "#kAiMsg", "");
@@ -1206,14 +1231,14 @@ PAGES.settings = () => {
   }
   $("#sSave").addEventListener("click", async () => {
     try {
-      await api("/api/settings", { method: "PUT", body: { iqama: $("#sI").value, contracts: $("#sC").value, docs: $("#sD").value, saudization_target: $("#sT").value, contract_autorenew: $("#sR").checked, contract_renew_days: $("#sRD").value, alert_emails: $("#sE").value, hotel_name_ar: $("#sHA").value, hotel_name_en: $("#sHE").value } });
+      await api("/api/settings", { method: "PUT", body: { iqama: $("#sI").value, contracts: $("#sC").value, docs: $("#sD").value, saudization_target: $("#sT").value, contract_autorenew: $("#sR").checked, contract_renew_days: $("#sRD").value, owner_email: $("#sE").value, hotel_name_ar: $("#sHA").value, hotel_name_en: $("#sHE").value } });
       toast(t("saved")); await refresh();
     } catch (e) { $("#sm").textContent = e.message; }
   });
   $("#sTest").addEventListener("click", async () => {
     const m = $("#sTm");
     try {
-      await api("/api/settings", { method: "PUT", body: { alert_emails: $("#sE").value } });
+      await api("/api/settings", { method: "PUT", body: { owner_email: $("#sE").value } });
       const out = await api("/api/alerts", { method: "POST" });
       m.className = "msg ok"; m.textContent = `✔ ${out.count} → ${out.to.join(", ")}`;
     } catch (e) { m.className = "msg err"; m.textContent = e.message; }

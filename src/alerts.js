@@ -7,11 +7,32 @@ export function emailConfigured(env) {
   return Boolean(env.RESEND_API_KEY);
 }
 
-export function alertRecipients(settings) {
-  return String(settings.alert_emails || "")
-    .split(/[,;\s]+/)
-    .map((s) => s.trim())
-    .filter((s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s));
+// The ONLY address the site may ever email: the owner's (set by the admin in Settings).
+export const EMAIL_RE = /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/;
+export function ownerEmail(settings) {
+  const e = String(settings.owner_email || "").trim().toLowerCase();
+  return EMAIL_RE.test(e) ? e : null;
+}
+
+// Single exit point for every email. Refuses anything that is not exactly one
+// message to the owner's address — employees and anyone else can never receive mail.
+export async function sendMail(env, settings, { to, subject, html }) {
+  const owner = ownerEmail(settings);
+  const list = (Array.isArray(to) ? to : [to]).map((x) => String(x || "").trim().toLowerCase());
+  if (!owner) return { sent: false, reason: "لم يتم تحديد بريدك في الإعدادات" };
+  if (list.length !== 1 || list[0] !== owner) {
+    console.error("BLOCKED email to non-owner address", list);
+    return { sent: false, reason: "مرفوض: الموقع يرسل لبريد المدير فقط" };
+  }
+  if (!emailConfigured(env)) return { sent: false, reason: "مفتاح البريد (Resend) غير مضاف" };
+  const r = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({ from: env.ALERT_FROM || "HR Novotel <onboarding@resend.dev>", to: [owner], subject, html }),
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) return { sent: false, reason: body.message || `Resend error ${r.status}` };
+  return { sent: true, to: [owner] };
 }
 
 export function alertEmailHtml(alerts, settings, siteUrl) {
@@ -49,24 +70,14 @@ export function alertEmailHtml(alerts, settings, siteUrl) {
 }
 
 export async function sendAlertEmail(env, settings, data, { force = false } = {}) {
-  if (!emailConfigured(env)) return { sent: false, reason: "RESEND_API_KEY missing" };
-  const to = alertRecipients(settings);
-  if (!to.length) return { sent: false, reason: "no recipients" };
-  const alerts = buildAlerts(data.employees, data.documents, settings);
+  const owner = ownerEmail(settings);
+  if (!owner) return { sent: false, reason: "لم يتم تحديد بريدك في الإعدادات" };
+  const today = new Date().toISOString().slice(0, 10);
+  const docs = data.documents.filter((d) => !(d.doc_type === "exit_reentry" && d.expiry_date && String(d.expiry_date).slice(0, 10) < today));
+  const alerts = buildAlerts(data.employees, docs, settings);
   if (!alerts.length && !force) return { sent: false, reason: "nothing to report", count: 0 };
   const expired = alerts.filter((a) => a.status === "expired").length;
   const subject = `تنبيه الوثائق — ${expired} منتهية، ${alerts.length - expired} قريبة الانتهاء`;
-  const r = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      from: env.ALERT_FROM || "HR Novotel <onboarding@resend.dev>",
-      to,
-      subject,
-      html: alertEmailHtml(alerts, settings, env.SITE_URL),
-    }),
-  });
-  const body = await r.json().catch(() => ({}));
-  if (!r.ok) return { sent: false, reason: body.message || `Resend error ${r.status}` };
-  return { sent: true, count: alerts.length, to };
+  const out = await sendMail(env, settings, { to: owner, subject, html: alertEmailHtml(alerts, settings, env.SITE_URL) });
+  return { ...out, count: alerts.length };
 }

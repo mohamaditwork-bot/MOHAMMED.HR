@@ -12,7 +12,7 @@ import { signRoute, appraisalsRoute } from "./appraisals.js";
 import { toTrash, trashRoute } from "./trash.js";
 import { renewContracts } from "./renewals.js";
 import { withSecrets, saveSecrets } from "./secrets.js";
-import { askClaude, aiConfigured, buildContext } from "./ai.js";
+import { askClaude, aiConfigured, aiProvider, buildContext } from "./ai.js";
 import { sendAlertEmail, emailConfigured } from "./alerts.js";
 import { DEFAULT_SETTINGS } from "../public/js/logic.js";
 
@@ -96,7 +96,7 @@ async function login(req, env) {
 async function me(req, env) {
   const u = await requireUser(env, req);
   if (u instanceof Response) return u;
-  return json({ user: { id: u.id, name: u.name, role: u.role }, features: { ai: aiConfigured(env), email: emailConfigured(env) } });
+  return json({ user: { id: u.id, name: u.name, role: u.role }, features: { ai: aiConfigured(env), ai_provider: aiProvider(env), email: emailConfigured(env) } });
 }
 
 async function password(req, env) {
@@ -363,7 +363,12 @@ async function settings(req, env) {
   }
   if ("contract_autorenew" in body) next.contract_autorenew = Boolean(body.contract_autorenew);
   if ("contract_renew_days" in body) next.contract_renew_days = Math.max(1, Math.min(180, parseInt(body.contract_renew_days, 10) || 75));
-  if ("alert_emails" in body) next.alert_emails = String(body.alert_emails || "").slice(0, 1000);
+  if ("owner_email" in body) {
+    const e = String(body.owner_email || "").trim().toLowerCase();
+    if (e && !/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(e)) return json({ error: "اكتب بريد واحد صحيح" }, 400);
+    next.owner_email = e || null;
+  }
+  delete next.alert_emails;
   for (const k of ["hotel_name_ar", "hotel_name_en"]) if (body[k]) next[k] = String(body[k]).slice(0, 120);
   await env.HR.put("settings", JSON.stringify(next));
   await audit(env, u, "update", "settings", null, body);
@@ -403,7 +408,7 @@ async function ai(req, env) {
     return json({ error: "اكتب سؤالك" }, 400);
   }
   try {
-    const out = await askClaude(env, { messages, context: buildContext({ ...data, rules: data.saud_rules, leaves: data.leaves, appraisals: data.appraisals }, st), mode, lang });
+    const out = await askClaude(env, { messages, context: buildContext({ ...data, rules: data.saud_rules, leaves: data.leaves, appraisals: data.appraisals }, st, { strict: aiProvider(env) === "gemini" }), mode, lang });
     if (mode === "screen" && out.text) {
       const db = await getDb(env);
       await db.query("UPDATE applicants SET ai_summary = $1 WHERE id = $2", [out.text.slice(0, 8000), parseInt(body.applicant_id, 10)]);
@@ -412,7 +417,7 @@ async function ai(req, env) {
   } catch (e) {
     console.error("AI error", e?.status, e?.message);
     if (e.status === 503) return json({ error: "الذكاء الاصطناعي غير مفعّل — المدير يضيف مفتاح Claude من الإعدادات" }, 503);
-    if (e.status === 429) return json({ error: "ضغط على خدمة الذكاء، حاول بعد قليل" }, 429);
+    if (e.status === 429) return json({ error: e.free ? "انتهى الحد المجاني من Gemini لهذي الدقيقة أو اليوم — حاول بعد شوي أو بكرة" : "ضغط على خدمة الذكاء، حاول بعد قليل" }, 429);
     return json({ error: "تعذر الاتصال بخدمة الذكاء الاصطناعي" }, 502);
   }
 }
@@ -454,7 +459,7 @@ async function secrets(req, env) {
   const body = (await readJson(req)) || {};
   const out = await saveSecrets(env, body);
   if (out.error) return json(out, 400);
-  await audit(env, u, "update", "api_keys", null, { ai: "anthropic_key" in body, email: "resend_key" in body });
+  await audit(env, u, "update", "api_keys", null, { ai: "anthropic_key" in body, gemini: "gemini_key" in body, email: "resend_key" in body });
   return json(out);
 }
 async function renewNow(req, env) {
