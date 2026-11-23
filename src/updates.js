@@ -393,10 +393,28 @@ function sheetTable(ws, headerTest) {
 }
 const sheetBy = (wb, re) => wb.Sheets[wb.SheetNames.find((n) => re.test(n.trim()))];
 
+// Placeholder text that must never overwrite real data.
+const EMPTY = /^(n\/?a|na|none|nil|null|-+|—|0+|pending|done|tbd|\?)$/i;
+// English nationality codes in the Master file → the Arabic used across the site.
+const NAT_AR = { bangladeshi: "بنغلاديشي", bangladesh: "بنغلاديشي", egyptian: "مصري", egyption: "مصري", egypt: "مصري", indian: "هندي", india: "هندي", pakistani: "باكستاني", pakistan: "باكستاني", saudi: "سعودي", "saudi arabian": "سعودي", sudanese: "سوداني", yemeni: "يمني", syrian: "سوري", jordanian: "أردني", filipino: "فلبيني", philippine: "فلبيني", nepali: "نيبالي", nepalese: "نيبالي", "sri lankan": "سريلانكي", indonesian: "إندونيسي", moroccan: "مغربي", tunisian: "تونسي", lebanese: "لبناني", palestinian: "فلسطيني", ethiopian: "إثيوبي", kenyan: "كيني", afghan: "أفغاني", nigerian: "نيجيري", ugandan: "أوغندي", myanmar: "ميانماري", burmese: "ميانماري", chadian: "تشادي", eritrean: "إريتري", somali: "صومالي", turkish: "تركي", iraqi: "عراقي", algerian: "جزائري", libyan: "ليبي" };
+const natAr = (v) => { const t = txt(v); return t ? NAT_AR[t.toLowerCase().replace(/\s+/g, " ")] || t : null; };
+// Fields the Master file is the source of truth for; everything else is only filled when empty.
+const MASTER_OWNS = new Set(["emp_no", "job_title", "grade", "leave_days", "basic_salary", "housing", "transport", "total_salary", "company", "work_hours", "iban", "bank", "qiwa_job", "iqama_job"]);
+const sameVal = (a, b) => {
+  const x = String(a ?? "").replace(/\s+/g, "").toLowerCase(), y = String(b ?? "").replace(/\s+/g, "").toLowerCase();
+  return x === y || (x !== "" && Number(x) === Number(y));
+};
+
 async function upsertPerson(db, map, kind, f, out, stat) {
   const id = f.id_no;
   const e = map.get(id);
-  const cols = Object.keys(f).filter((k) => k !== "id_no" && f[k] !== null && f[k] !== undefined && f[k] !== "");
+  for (const k of Object.keys(f)) if (typeof f[k] === "string" && EMPTY.test(f[k].trim())) f[k] = null;
+  // A date typed into a text column (e.g. qualification) is a shifted cell, not data.
+  for (const k of ["qualification", "specialty", "experience"]) if (f[k] && /^\d{4}-\d{2}-\d{2}$|^\d{5}$/.test(String(f[k]))) f[k] = null;
+  if (f.nationality) f.nationality = natAr(f.nationality);
+  if (f.mobile) { const m = String(f.mobile).replace(/\D/g, "").replace(/^(00966|966)/, ""); f.mobile = m.length >= 9 ? (m.startsWith("0") ? m : "0" + m) : null; }
+  if (f.iban) f.iban = String(f.iban).replace(/\s+/g, "").toUpperCase();
+  let cols = Object.keys(f).filter((k) => k !== "id_no" && f[k] !== null && f[k] !== undefined && f[k] !== "");
   if (!e) {
     const all = ["kind", "status", "id_no", ...cols];
     const vals = [kind, "active", id, ...cols.map((k) => f[k])];
@@ -407,6 +425,13 @@ async function upsertPerson(db, map, kind, f, out, stat) {
     out.push(`➕ ${kind === "labor" ? "عامل" : "موظف"} جديد: ${f.name_ar || f.name_en} (${id})`);
     return r[0];
   }
+  const cur = (await db.query("SELECT * FROM employees WHERE id = $1", [e.id]))[0] || {};
+  cols = cols.filter((k) => {
+    const old = cur[k] instanceof Date ? cur[k].toISOString().slice(0, 10) : cur[k];
+    const empty = old === null || old === undefined || String(old).trim() === "" || EMPTY.test(String(old).trim());
+    if (empty) return true;
+    return MASTER_OWNS.has(k) && !sameVal(old, f[k]);
+  });
   if (cols.length) {
     await db.query(`UPDATE employees SET ${cols.map((k, i) => `${k} = $${i + 1}`).join(", ")}, status = 'active', updated_at = now() WHERE id = $${cols.length + 1}`, [...cols.map((k) => f[k]), e.id]);
     stat.updated++;
@@ -482,7 +507,8 @@ H.master = async (db, wb) => {
     }, out, stat);
     for (const [type, v] of [["health", g(/^baladya card/)], ["iqama", g(/^iqama expiry/)], ["ajeer", g(/^ajeer expiry/)]]) {
       const d = xdate(v);
-      if (d) { await upsertDoc(db, e.id, type, { expiry: d }); stat.docs++; }
+      // Only fill a missing date or move it forward — Muqeem/renewals may already hold a newer one.
+      if (d) { const old = await docExpiry(db, e.id, type); if (!old || d > old) { await upsertDoc(db, e.id, type, { expiry: d }); stat.docs++; } }
     }
     nCasual++;
   }
