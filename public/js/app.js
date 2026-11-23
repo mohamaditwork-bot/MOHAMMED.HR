@@ -2,7 +2,7 @@
 import { t, f, getLang, setLang } from "./i18n.js";
 import { renderDoc, GRADES, DECISIONS, STATUS as APR_STATUS } from "./appraisal-doc.js";
 import {
-  DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, leavingReason, renewalReady,
+  DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, leavingReason, renewalReady, docApplies,
 } from "./logic.js";
 
 // ================= helpers =================
@@ -58,6 +58,8 @@ async function reload() {
   const today = new Date().toISOString().slice(0, 10);
   D.documents = D.documents.filter((d) => !(d.doc_type === "exit_reentry" && d.expiry_date && d.expiry_date < today));
   EMP = new Map(D.employees.map((e) => [e.id, e]));
+  // Saudis: passport / iqama / work permit are not needed — keep them out of every screen.
+  D.documents = D.documents.filter((d) => docApplies(EMP.get(d.employee_id), d.doc_type));
 }
 
 const empName = (e) => (e ? (L() === "en" && e.name_en ? e.name_en : e.name_ar) : "");
@@ -1097,7 +1099,7 @@ PAGES.assistant = () => {
   q.addEventListener("input", grow);
   q.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#cf").requestSubmit(); } });
   $("#cf").addEventListener("submit", (e) => { e.preventDefault(); const v = q.value; q.value = ""; grow(); send(v); });
-  $$("[data-q]").forEach((b) => b.addEventListener("click", () => {
+  $$(".ai-quick [data-q]").forEach((b) => b.addEventListener("click", () => {
     const p = t("ai.q." + b.dataset.q + ".p");
     if (b.dataset.q === "letter") { q.value = p; q.focus(); grow(); } else send(p);
   }));

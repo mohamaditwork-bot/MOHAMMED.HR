@@ -7,7 +7,7 @@ const KEY = "secrets";
 let cache = null, cacheAt = 0;
 
 async function stored(env) {
-  if (cache && Date.now() - cacheAt < 60e3) return cache;
+  if (cache && Date.now() - cacheAt < 5e3) return cache;
   cache = (await env.HR.get(KEY, "json")) || {};
   cacheAt = Date.now();
   return cache;
