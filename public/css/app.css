@@ -529,3 +529,24 @@ tbody tr:hover .row-acts { opacity: 1; }
 .pw-meter i.mid { background: var(--orange); } .pw-meter i.ok { background: var(--green); }
 .pw-rules { margin: 0 0 12px; padding-inline-start: 18px; text-align: start; }
 .login-card .sub { font-weight: 700; }
+
+/* ===== Employee file (folder view) ===== */
+.fcheck { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; background: var(--surface-2); }
+.fcheck-h { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.fbar { flex: 1; height: 7px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.fbar i { display: block; height: 100%; background: linear-gradient(90deg, #6b5cc8, #1d8048); }
+.fchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fchip { font-size: 12px; padding: 3px 10px; border-radius: 99px; font-weight: 600; }
+.fchip.ok { background: var(--green-bg); color: var(--green); }
+.fchip.miss { background: var(--surface); color: var(--muted); border: 1px dashed var(--line); }
+.fsec { margin-top: 12px; }
+.fsec h4 { margin: 0 0 8px; font-size: 14px; }
+.fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.fcard { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); display: flex; flex-direction: column; }
+.fcard img, .fthumb { width: 100%; height: 110px; object-fit: cover; background: var(--surface-2); }
+.fthumb { display: grid; place-items: center; font-weight: 800; color: #6b5cc8; font-size: 20px; letter-spacing: 1px; }
+.fmeta { padding: 8px 10px 4px; min-width: 0; }
+.fmeta b { display: block; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; unicode-bidi: plaintext; }
+.fmeta span { font-size: 11px; color: var(--muted); }
+.facts { display: flex; gap: 6px; padding: 6px 10px 10px; }
+@media print { .fcard img { height: 80px; } .facts { display: none; } }

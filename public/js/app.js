@@ -641,10 +641,9 @@ function openProfile(id, tab) {
       <div data-pane="files" class="hidden">
         ${canEdit() ? `<div class="no-print" style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
           <select class="input" id="pFileDoc" style="width:auto"><option value="">${esc(t("files"))}</option>${docs.map((d) => `<option value="${d.id}">${esc(docLabel(d.doc_type))}</option>`).join("")}</select>
-          <label class="btn sm">⬆ ${esc(t("file.upload"))}<input type="file" id="pFile" accept=".pdf,image/*" hidden></label><span class="msg" id="pFileMsg"></span></div>` : ""}
-        ${fls.length ? `<div class="tbl compact"><table><thead><tr><th>${esc(f("name"))}</th><th>${esc(t("doc.type"))}</th><th class="num">KB</th><th>${esc(t("a.at"))}</th><th></th></tr></thead><tbody>
-          ${fls.slice().sort((a, b) => FCATS.indexOf(a.category || "other") - FCATS.indexOf(b.category || "other")).map((x) => `<tr><td>📎 ${esc(x.file_name)}</td><td>${esc(x.category ? t("fc." + x.category) : x.document_id ? docLabel(D.documents.find((d) => d.id === x.document_id)?.doc_type) : "—")}</td><td class="num">${Math.ceil(x.size / 1024)}</td><td class="num">${esc(fmtDate(x.created_at))}</td>
-          <td><a class="btn ghost sm" href="/api/files?id=${x.id}" data-file="${x.id}" data-size="${x.size}" data-mime="${esc(x.mime)}" target="_blank" rel="noopener">${esc(t("file.open"))}</a> ${canEdit() ? `<button class="btn ghost sm" data-delfile="${x.id}">✕</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">${esc(t("file.none"))}</p>`}
+          <select class="input" id="pFileCat" style="width:auto">${FCATS.map((c) => `<option value="${c}" ${c === "other" ? "selected" : ""}>${esc(t("fc." + c))}</option>`).join("")}</select>
+          <label class="btn sm">⬆ ${esc(t("file.upload"))}<input type="file" id="pFile" accept=".pdf,.docx,image/*" hidden></label><span class="msg" id="pFileMsg"></span></div>` : ""}
+        ${fileFolder(fls)}
       </div>
       <div data-pane="leaves" class="hidden">
         <div class="kv" style="margin-bottom:12px"><div><span>${esc(t("lv.entitled"))}</span><b>${bal.entitled}</b></div><div><span>${esc(t("lv.used"))}</span><b>${bal.used}</b></div><div><span>${esc(t("lv.remaining"))}</span><b class="${bal.remaining < 0 ? "d-exp" : ""}">${bal.remaining}</b></div></div>
@@ -698,7 +697,7 @@ function openProfile(id, tab) {
     const msg = $("#pFileMsg", m.root);
     msg.className = "msg"; msg.textContent = t("loading");
     try {
-      await api("/api/files", { method: "POST", headers: { "content-type": file.type || "application/octet-stream", "x-file-name": encodeURIComponent(file.name), "x-employee-id": String(id), "x-document-id": $("#pFileDoc", m.root).value }, body: file });
+      await api("/api/files", { method: "POST", headers: { "content-type": file.type || "application/octet-stream", "x-file-name": encodeURIComponent(file.name), "x-employee-id": String(id), "x-document-id": $("#pFileDoc", m.root).value, "x-category": $("#pFileCat", m.root).value }, body: file });
       toast(t("saved")); m.close(); await reload(); renderNav(); openProfile(id, "files");
     } catch (err) { msg.className = "msg err"; msg.textContent = err.message; }
   });
@@ -1310,6 +1309,23 @@ function userForm(u, draw) {
     if (!confirm(t("confirm.delete"))) return;
     try { draw((await api("/api/users", { method: "DELETE", body: { id: u.id } })).users); m.close(); } catch (e) { $("#ue", m.root).textContent = e.message; }
   });
+}
+
+// The employee's file: a checklist of the essential documents, then every file grouped by type.
+const FILE_CHECK = ["iqama", "passport", "contract", "offer", "joining", "cv", "certificate", "iban", "health", "address", "photo"];
+const FCAT_ICON = { iqama: "🪪", passport: "🛂", contract: "📜", offer: "📨", joining: "🗓", cv: "📄", iban: "🏦", experience: "🧰", certificate: "🎓", address: "📍", form: "🗂", health: "🩺", photo: "🖼", dependent: "👨‍👩‍👧", other: "📎" };
+function fileFolder(fls) {
+  const by = {};
+  for (const x of fls) (by[x.category || "other"] ||= []).push(x);
+  const have = FILE_CHECK.filter((c) => by[c]);
+  const pct = Math.round((have.length / FILE_CHECK.length) * 100);
+  const card = (x) => `<div class="fcard">
+      ${x.mime?.startsWith("image/") && x.size < 4194304 ? `<img loading="lazy" src="/api/files?id=${x.id}" alt="">` : `<div class="fthumb">${x.mime === "application/pdf" ? "PDF" : x.mime?.includes("word") ? "DOCX" : "📎"}</div>`}
+      <div class="fmeta"><b title="${esc(x.file_name)}">${esc(x.file_name)}</b><span>${Math.ceil(x.size / 1024).toLocaleString()} KB • ${esc(fmtDate(x.created_at))}</span></div>
+      <div class="facts"><a class="btn ghost sm" href="/api/files?id=${x.id}" data-file="${x.id}" data-size="${x.size}" data-mime="${esc(x.mime)}" target="_blank" rel="noopener">${esc(t("file.open"))}</a>${canEdit() ? `<button class="btn ghost sm" data-delfile="${x.id}" title="${esc(t("delete"))}">✕</button>` : ""}</div></div>`;
+  return `<div class="fcheck"><div class="fcheck-h"><b>${esc(t("ff.check"))}</b><span class="num">${have.length} / ${FILE_CHECK.length}</span><div class="fbar"><i style="width:${pct}%"></i></div></div>
+      <div class="fchips">${FILE_CHECK.map((c) => `<span class="fchip ${by[c] ? "ok" : "miss"}">${by[c] ? "✔" : "✖"} ${FCAT_ICON[c]} ${esc(t("fc." + c))}</span>`).join("")}</div></div>
+    ${fls.length ? FCATS.filter((c) => by[c]).map((c) => `<div class="fsec"><h4>${FCAT_ICON[c]} ${esc(t("fc." + c))} <span class="muted">(${by[c].length})</span></h4><div class="fgrid">${by[c].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(card).join("")}</div></div>`).join("") : `<p class="muted">${esc(t("file.none"))}</p>`}`;
 }
 
 // ================= EMPLOYEE FILES (zip → each employee's file) =================
