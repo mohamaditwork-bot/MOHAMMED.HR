@@ -84,19 +84,31 @@ export function byIdNumber(texts, employees) {
 export function categorize(fileName) {
   const n = normName(fileName);
   const has = (re) => re.test(n);
-  if (has(/زوجه|زوج |wife|husband|\bson\b|daughter|ابن|بنت|dependent|تابع/)) return "dependent";
+  if (has(/زوجه|زوج |wife|husband|\bson\b|daughter|ابن|بنت|ولد|افراد الاسره|family|dependent|تابع/)) return "dependent";
+  if (has(/health|baladya|baladiya|بلديه|شهاده صحيه|صحيه/)) return "health";
   if (has(/passport|جواز/)) return "passport";
-  if (has(/عقد|contract|قوي/)) return "contract";
+  if (has(/(^|[^a-z])(loi|jd)(?![a-z])|offer|عرض وظيفي|وصف وظيفي|job description/)) return "offer";
+  if (has(/مباشره|مباشرة|joining|join date/)) return "joining";
+  if (has(/عنوان الوطني|العنوان|address/)) return "address";
+  if (has(/نموذج|\bform\b/)) return "form";
+  if (has(/عقد|contract|قوي|qiwa/)) return "contract";
   if (has(/\biban\b|ايبان|بنك|bank/)) return "iban";
   if (has(/\bcv\b|resume|سيره|سيرة/)) return "cv";
   if (has(/experi|expir|خبره|خبرة|\bexp\b/)) return "experience";
-  if (has(/certificate|degree|diploma|شهاده|مؤهل/)) return "certificate";
+  if (has(/certificate|degree|diploma|qualification|secondr|secondary|ثانوي|جامع|شهاده|مؤهل/)) return "certificate";
   if (has(/picture|photo|\bpic\b|صوره شخصيه|personal/)) return "photo";
-  if (has(/\bid\b|iqama|هويه|اقامه|residen/)) return "iqama";
+  if (has(/\bid\b|iqama|هويه|اقامه|residen|الهويه الوطنيه/)) return "iqama";
   return "other";
 }
 
-export const CAT_TO_DOC = { iqama: "iqama", passport: "passport", contract: "contract" };
+// Within one folder: "Picture6.png"-style files count as the photo only when no explicit photo file exists.
+export function categorizeFolder(files) {
+  const cats = files.map((f) => categorize(f.name));
+  const explicit = files.some((f, i) => cats[i] === "photo" && /photo|صوره|صورة/i.test(f.name));
+  return cats.map((c, i) => (c === "photo" && explicit && /^picture\d*\./i.test(files[i].name) ? "other" : c));
+}
+
+export const CAT_TO_DOC = { iqama: "iqama", passport: "passport", contract: "contract", health: "health" };
 
 // Group zip entries (paths) into employee folders: the folder that directly holds the files.
 export function groupEntries(paths) {
@@ -119,11 +131,19 @@ export function matchFolder(folder, files, employees) {
   const leaf = parts[parts.length - 1];
   const viaId = byIdNumber([folder, ...files.map((f) => f.name)], employees);
   if (viaId) return { emp: viaId, how: "id", score: 1 };
-  const byFolder = bestEmployee([leaf], employees);
-  if (byFolder) return { ...byFolder, how: "folder" };
+  // Folder name and the person's names inside file names are weighed together,
+  // so "MD Rajib" with "MD RAZIB BUYIA.pdf" goes to Razib, not to a similar "Rakib".
   const own = files.filter((f) => categorize(f.name) !== "dependent").map((f) => f.name);
-  const byFiles = bestEmployee(own, employees);
-  if (byFiles) return { ...byFiles, how: "files" };
+  let best = null;
+  for (const e of employees) {
+    const fs = scoreName(leaf, e);
+    let ff = 0;
+    for (const n of own) ff = Math.max(ff, scoreName(n, e));
+    if (fs < 0.6 && ff < 0.6) continue;
+    const total = fs + ff * 0.8 + (e.kind === "staff" ? 0.05 : 0);
+    if (!best || total > best.total) best = { emp: e, score: Math.max(fs, ff), total, how: fs >= 0.6 ? "folder" : "files" };
+  }
+  if (best) return { emp: best.emp, score: best.score, how: best.how };
   const lt = normName(leaf);
   const byTitle = employees.filter((e) => normName(e.job_title) === lt);
   if (byTitle.length === 1) return { emp: byTitle[0], score: 0.7, how: "title" };

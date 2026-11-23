@@ -1,7 +1,7 @@
 // HR control platform — single page app (vanilla ES modules, no build step).
 import { t, f, getLang, setLang } from "./i18n.js";
 import { renderDoc, GRADES, DECISIONS, STATUS as APR_STATUS } from "./appraisal-doc.js";
-import { groupEntries, matchFolder, categorize, CAT_TO_DOC } from "./filematch.js";
+import { groupEntries, matchFolder, categorizeFolder, CAT_TO_DOC } from "./filematch.js";
 import {
   DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, leavingReason,
 } from "./logic.js";
@@ -644,7 +644,7 @@ function openProfile(id, tab) {
           <label class="btn sm">⬆ ${esc(t("file.upload"))}<input type="file" id="pFile" accept=".pdf,image/*" hidden></label><span class="msg" id="pFileMsg"></span></div>` : ""}
         ${fls.length ? `<div class="tbl compact"><table><thead><tr><th>${esc(f("name"))}</th><th>${esc(t("doc.type"))}</th><th class="num">KB</th><th>${esc(t("a.at"))}</th><th></th></tr></thead><tbody>
           ${fls.slice().sort((a, b) => FCATS.indexOf(a.category || "other") - FCATS.indexOf(b.category || "other")).map((x) => `<tr><td>📎 ${esc(x.file_name)}</td><td>${esc(x.category ? t("fc." + x.category) : x.document_id ? docLabel(D.documents.find((d) => d.id === x.document_id)?.doc_type) : "—")}</td><td class="num">${Math.ceil(x.size / 1024)}</td><td class="num">${esc(fmtDate(x.created_at))}</td>
-          <td><a class="btn ghost sm" href="/api/files?id=${x.id}" target="_blank" rel="noopener">${esc(t("file.open"))}</a> ${canEdit() ? `<button class="btn ghost sm" data-delfile="${x.id}">✕</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">${esc(t("file.none"))}</p>`}
+          <td><a class="btn ghost sm" href="/api/files?id=${x.id}" data-file="${x.id}" data-size="${x.size}" data-mime="${esc(x.mime)}" target="_blank" rel="noopener">${esc(t("file.open"))}</a> ${canEdit() ? `<button class="btn ghost sm" data-delfile="${x.id}">✕</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">${esc(t("file.none"))}</p>`}
       </div>
       <div data-pane="leaves" class="hidden">
         <div class="kv" style="margin-bottom:12px"><div><span>${esc(t("lv.entitled"))}</span><b>${bal.entitled}</b></div><div><span>${esc(t("lv.used"))}</span><b>${bal.used}</b></div><div><span>${esc(t("lv.remaining"))}</span><b class="${bal.remaining < 0 ? "d-exp" : ""}">${bal.remaining}</b></div></div>
@@ -1307,7 +1307,7 @@ function userForm(u, draw) {
 }
 
 // ================= EMPLOYEE FILES (zip → each employee's file) =================
-const FCATS = ["iqama", "passport", "contract", "cv", "iban", "experience", "certificate", "photo", "dependent", "other"];
+const FCATS = ["iqama", "passport", "contract", "offer", "joining", "cv", "iban", "experience", "certificate", "address", "form", "health", "photo", "dependent", "other"];
 const loadScript = (src) => new Promise((ok, no) => { if (document.querySelector(`script[src="${src}"]`)) return ok(); const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
 const extMime = (n) => ({ pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: null, docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }[String(n).split(".").pop().toLowerCase()] ?? null);
 async function shrinkImage(blob) {
@@ -1339,9 +1339,10 @@ PAGES.importFiles = () => {
       const groups = groupEntries(entries.map((x) => x.path));
       const byPath = new Map(entries.map((x) => [x.path, x.entry]));
       const emps = D.employees.filter((e) => e.status !== "left");
+      let mem = {}; try { mem = JSON.parse(localStorage.getItem("hr_folder_map") || "{}"); } catch {}
       FI = [...groups].map(([folder, list]) => {
-        const m = matchFolder(folder, list, emps);
-        return { folder, emp: m?.emp?.id || "", how: m?.how || "", files: list.map((x) => ({ ...x, entry: byPath.get(x.path), cat: categorize(x.name), skip: !extMime(x.name) })) };
+        const m = matchFolder(folder, list, emps) || (EMP.has(mem[folder]) ? { emp: EMP.get(mem[folder]), how: "remembered" } : null);
+        return { folder, emp: m?.emp?.id || "", how: m?.how || "", files: (() => { const cats = categorizeFolder(list); return list.map((x, i) => ({ ...x, entry: byPath.get(x.path), cat: cats[i], skip: !extMime(x.name) })); })() };
       }).sort((a, b) => (a.emp ? 1 : 0) - (b.emp ? 1 : 0) || a.folder.localeCompare(b.folder));
       msg.textContent = "";
       drawFI();
@@ -1386,16 +1387,26 @@ async function uploadFI() {
       let mime = extMime(f.name);
       let blob = await f.entry.async("blob");
       if (mime.startsWith("image/")) { blob = await shrinkImage(blob); if (blob.type === "image/jpeg") mime = "image/jpeg"; }
-      if (blob.size > 4 * 1024 * 1024) throw new Error(t("fi.big"));
+      if (blob.size > 25 * 1024 * 1024) throw new Error(t("fi.big"));
       const doc = CAT_TO_DOC[f.cat] && D.documents.find((d) => d.employee_id === g.emp && d.doc_type === CAT_TO_DOC[f.cat]);
-      const r = await fetch("/api/files", { method: "POST", body: blob, headers: { "content-type": mime, "x-file-name": encodeURIComponent(f.name), "x-employee-id": String(g.emp), "x-category": f.cat, ...(doc ? { "x-document-id": String(doc.id) } : {}) } });
-      const o = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(o.error || r.status);
+      const hdrs = { "content-type": mime, "x-file-name": encodeURIComponent(f.name), "x-employee-id": String(g.emp), "x-category": f.cat, ...(doc ? { "x-document-id": String(doc.id) } : {}) };
+      // Files over ~3.5 MB go up in 3 MB pieces (the host accepts at most ~4.5 MB per request).
+      const CH = 3 * 1024 * 1024;
+      const parts = blob.size > 3.5 * 1024 * 1024 ? Math.ceil(blob.size / CH) : 1;
+      const upId = parts > 1 ? [...crypto.getRandomValues(new Uint8Array(12))].map((x) => x.toString(16).padStart(2, "0")).join("") : null;
+      let o = {};
+      for (let k = 0; k < parts; k++) {
+        const body = parts > 1 ? blob.slice(k * CH, (k + 1) * CH) : blob;
+        const r = await fetch("/api/files", { method: "POST", body, headers: parts > 1 ? { ...hdrs, "x-upload-id": upId, "x-chunk-index": String(k), "x-chunk-total": String(parts) } : hdrs });
+        o = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(o.error || r.status);
+      }
       o.duplicate ? res.dup++ : res.saved++;
       res.per.set(g.emp, (res.per.get(g.emp) || 0) + (o.duplicate ? 0 : 1));
     } catch (e) { res.failed.push(`${g.folder}/${f.name}: ${e.message}`); }
   }
   const skipped = FI.filter((g) => !g.emp).map((g) => g.folder);
+  try { const mem = JSON.parse(localStorage.getItem("hr_folder_map") || "{}"); for (const g of FI) if (g.emp) mem[g.folder] = g.emp; localStorage.setItem("hr_folder_map", JSON.stringify(mem)); } catch {}
   FI = null;
   await reload(); renderNav();
   $("#fwork").innerHTML = `<div class="card" style="margin-top:16px"><h3>📋 ${esc(t("fi.report"))}</h3>
@@ -1737,7 +1748,7 @@ function buildReport(k) {
           <tr><th>${esc(f("department"))}</th><td>${esc(e.department || "")}</td><th>${esc(f("nationality"))}</th><td>${esc(e.nationality || "")}</td></tr>
           <tr><th>${esc(f("join_date"))}</th><td class="num">${esc(fmtDate(e.join_date))}</td><th>${esc(t("rep.leavers.end"))}</th><td class="num"><b>${esc(fmtDate(d.expiry_date))}</b></td></tr>
           <tr><th>${esc(t("rep.leavers.why"))}</th><td colspan="3">${esc(why)}</td></tr>
-          <tr><th>${esc(t("files"))}</th><td colspan="3">${files(e.id).map((a) => `<a href="/api/files?id=${a.id}" target="_blank" rel="noopener">📎 ${esc(a.file_name)}</a>`).join("<br>") || "—"}</td></tr>
+          <tr><th>${esc(t("files"))}</th><td colspan="3">${files(e.id).map((a) => `<a href="/api/files?id=${a.id}" data-file="${a.id}" data-size="${a.size}" data-mime="${esc(a.mime)}" target="_blank" rel="noopener">📎 ${esc(a.file_name)}</a>`).join("<br>") || "—"}</td></tr>
           <tr><th>${esc(t("p.documents"))}</th><td colspan="3">${D.documents.filter((x) => x.employee_id === e.id).map((x) => `${esc(docLabel(x.doc_type))}: <span class="num">${esc(fmtDate(x.expiry_date) || "—")}</span>`).join(" • ")}</td></tr>
         </tbody></table>`).join("") : `<p class="muted">${esc(t("rep.leavers.none"))}</p>`);
   }
@@ -1854,6 +1865,20 @@ function setupIdleLock() {
   };
   $("#printBtn").onclick = () => window.print();
   document.addEventListener("click", (e) => { if (e.target.closest('[data-act="print"]')) window.print(); });
+  // Files over 4 MB are downloaded in parts and opened from memory.
+  document.addEventListener("click", async (e) => {
+    const a = e.target.closest("a[data-file]");
+    if (!a || +a.dataset.size <= 4 * 1024 * 1024) return;
+    e.preventDefault();
+    const win = window.open("", "_blank");
+    try {
+      toast(t("loading"));
+      const id = a.dataset.file, parts = Math.ceil(+a.dataset.size / (3 * 1024 * 1024)), bufs = [];
+      for (let k = 0; k < parts; k++) { const r = await fetch(`/api/files?id=${id}&part=${k}`); if (!r.ok) throw new Error(r.status); bufs.push(await r.arrayBuffer()); }
+      const url = URL.createObjectURL(new Blob(bufs, { type: a.dataset.mime || "application/pdf" }));
+      if (win) win.location = url; else location.href = url;
+    } catch (err) { if (win) win.close(); toast(err.message, true); }
+  });
   window.addEventListener("hashchange", route);
   route();
 })();
