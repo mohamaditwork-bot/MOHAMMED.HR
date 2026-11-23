@@ -1188,7 +1188,7 @@ PAGES.settings = () => {
     ${isAdmin() ? `<div class="card keys-card" style="margin-top:18px"><h3>🔑 ${esc(t("k.title"))}</h3><p class="muted" style="margin-top:0">${esc(t("k.desc"))}</p>
       <div class="key-row key-main"><div class="key-h"><b>✦ ${esc(t("k.gem"))}</b> <span class="pill s-info">${esc(t("k.free"))}</span> <span id="kGeSt"></span></div>
         <ol class="key-steps"><li>${t("k.gem.1")}</li><li>${t("k.gem.2")}</li><li>${t("k.gem.3")}</li></ol>
-        <div class="key-in"><input class="input" type="password" id="kGe" placeholder="AIza..." dir="ltr" autocomplete="off"><button class="btn" id="kGeSave">${esc(t("k.save"))}</button><button class="btn ghost sm" id="kGeDel">${esc(t("k.remove"))}</button></div>
+        <div class="key-in"><input class="input" type="password" id="kGe" placeholder="AIza... / AQ...." dir="ltr" autocomplete="off"><button class="btn" id="kGeSave">${esc(t("k.save"))}</button><button class="btn ghost sm" id="kGeDel">${esc(t("k.remove"))}</button></div>
         <p class="muted small" style="margin:6px 0 0">🔒 ${esc(t("k.gem.priv"))}</p><p class="msg" id="kGeMsg"></p></div>
       <div class="key-row"><div class="key-h"><b>✦ ${esc(t("k.ai"))}</b> <span class="pill s-none">${esc(t("k.paid"))}</span> <span id="kAiSt"></span></div>
         <ol class="key-steps"><li>${t("k.ai.1")}</li><li>${t("k.ai.2")}</li><li>${t("k.ai.3")}</li></ol>
