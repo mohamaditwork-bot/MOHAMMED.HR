@@ -142,8 +142,17 @@ H.contracts = async (db, wb) => {
         await addTask(db, "platform", "بدون عقد ساري في قوى", nm(e), id, txt(list[list.length - 1]["Contract status"]));
       }
     } else if (active && !e) {
-      out.push(`➕ ${txt(active["Employee name"])} (${id}) عقدها/عقده ساري في قوى وغير مسجل بالموقع`);
-      await addTask(db, "platform", "عقد ساري في قوى وغير مسجل في الموقع", txt(active["Employee name"]), id, "أضفه في الموظفين");
+      // New hire: an active Qiwa contract but not in the system yet → add as staff right away.
+      const name = txt(active["Employee name"]) || id;
+      const joined = anyDate(active["Created at"]);
+      const r = await db.query(
+        "INSERT INTO employees (kind, status, id_no, name_ar, nationality, join_date, platform) VALUES ('staff','active',$1,$2,$3,$4,$5) RETURNING id, kind, status, name_ar, name_en, id_no, platform",
+        [id, name, id.startsWith("1") ? "سعودي" : null, joined, JSON.stringify({ qiwa_contract: "✔", qiwa_contract_status: "ساري" })]
+      );
+      map.set(id, r[0]);
+      ok++;
+      out.push(`➕ موظف جديد من قوى: ${name} (${id}) — انضاف للموظفين، كمّل بياناته (المسمى الوظيفي والمهنة والقسم والراتب)`);
+      await addTask(db, "platform", "موظف جديد من قوى — كمّل بياناته", name, id, "المسمى الوظيفي ومهنة قوى والقسم والراتب");
     }
   }
   return { summary: `${ok} موظف عقدهم ساري`, changes: out };
