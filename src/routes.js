@@ -365,7 +365,7 @@ async function ai(req, env) {
     return json(out);
   } catch (e) {
     console.error("AI error", e?.status, e?.message);
-    if (e.status === 503) return json({ error: "الذكاء الاصطناعي غير مفعّل — المدير يضيف مفتاح Claude من الإعدادات" }, 503);
+    if (e.status === 503) return json({ error: "الذكاء الاصطناعي غير مفعّل — المدير يضيف مفتاح Google Gemini المجاني من الإعدادات ← مفاتيح الخدمات" }, 503);
     if (e.status === 429) return json({ error: e.free ? "انتهى الحد المجاني من Gemini لهذي الدقيقة أو اليوم — حاول بعد شوي أو بكرة" : "ضغط على خدمة الذكاء، حاول بعد قليل" }, 429);
     return json({ error: "تعذر الاتصال بخدمة الذكاء الاصطناعي" }, 502);
   }
