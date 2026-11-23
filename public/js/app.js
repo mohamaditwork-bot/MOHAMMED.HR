@@ -428,7 +428,7 @@ PAGES.dashboard = () => {
     return;
   }
   $("#view").innerHTML = `${welcome()}
-    ${head(t("p.dashboard"), `${t("today")}: ${fmtDate(new Date().toISOString())}`, `${FEATURES.ai ? `<button class="btn" id="aiIns">✦ ${esc(t("ai.generate"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`)}
+    ${head(t("p.dashboard"), `${t("today")}: ${fmtDate(new Date().toISOString())}`, `${FEATURES.ai ? `<button class="btn" id="aiIns">✦ ${esc(t("ai.generate"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`)}
     <div id="aiOut"></div>
     <div class="grid kpis">
       ${kpi(t("k.staff"), r.total, "", "", "employees")}
@@ -588,7 +588,7 @@ function peoplePage(kind) {
     ];
   const title = t(kind === "staff" ? "p.employees" : "p.labor");
   $("#view").innerHTML = head(title, `${rows.filter((e) => e.status !== "left").length} ${t("emp.active")}`,
-    `${canEdit() ? `<button class="btn" id="addEmp">+ ${esc(t("add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div><p class="muted small legend">${t("pp.legend")}</p>`;
+    `${canEdit() ? `<button class="btn" id="addEmp">+ ${esc(t("add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div><p class="muted small legend">${t("pp.legend")}</p>`;
   $("#addEmp")?.addEventListener("click", () => openForm("employees", null, { form: kind, preset: { kind, status: "active" }, title: `${t("add")} — ${title}` }));
   dataTable($("#tb"), {
     id: "people-" + kind, rows, cols, exportName: title,
@@ -737,7 +737,7 @@ PAGES.documents = () => {
     .filter((d) => EMP.has(d.employee_id))
     .map((d) => ({ ...d, s: docStatus(d, st), e: EMP.get(d.employee_id) }));
   $("#view").innerHTML = head(t("p.documents"), `${t("set.iqama")} ${st.iqama} • ${t("set.contracts")} ${st.contracts} • ${t("set.docs")} ${st.docs} ${t("days")}`,
-    `${canEdit() ? `<button class="btn ghost" id="renewNow">🔁 ${esc(t("rn.btn").replace("{n}", st.contract_renew_days ?? 75))}</button><button class="btn" id="addDoc">+ ${esc(t("doc.add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div>`;
+    `${canEdit() ? `<button class="btn ghost" id="renewNow">🔁 ${esc(t("rn.btn").replace("{n}", st.contract_renew_days ?? 75))}</button><button class="btn" id="addDoc">+ ${esc(t("doc.add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div>`;
   $("#addDoc")?.addEventListener("click", () => openForm("documents", null, { title: t("doc.add") }));
   $("#renewNow")?.addEventListener("click", renewContractsNow);
   dataTable($("#tb"), {
@@ -833,7 +833,7 @@ PAGES.saudization = () => {
   const thead = `<tr><th></th><th class="num">${esc(t("total"))}</th><th class="num">${esc(t("k.saudi"))}</th><th class="num">${esc(t("k.nonsaudi"))}</th><th>${esc(t("k.ratio"))}</th>${target ? `<th class="num">${esc(t("s.need"))}</th>` : ""}</tr>`;
 
   $("#view").innerHTML = `
-    ${head(t("p.saudization"), t("s.note"), `${FEATURES.ai ? `<button class="btn" id="aiSaud">✦ ${esc(t("s.ai"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`)}
+    ${head(t("p.saudization"), t("s.note"), `${FEATURES.ai ? `<button class="btn" id="aiSaud">✦ ${esc(t("s.ai"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`)}
     <div id="aiOut"></div>
     <div class="grid kpis">
       <div class="card kpi blue"><div class="l">${esc(t("s.overall"))}</div><div class="v num">${pct(r.pct)}</div><div class="h">${r.saudi} / ${r.total}</div></div>
@@ -894,7 +894,7 @@ PAGES.recruitment = () => {
   const apps = D.applicants.filter((a) => !jobFilter || String(a.job_id) === jobFilter);
   const jobName = (id) => D.jobs.find((j) => j.id === id)?.title || "—";
   $("#view").innerHTML = `
-    ${head(t("p.recruitment"), "", `${canEdit() ? `<button class="btn" id="addApp">+ ${esc(t("r.app.add"))}</button><button class="btn ghost" id="addJob">+ ${esc(t("r.job.add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`)}
+    ${head(t("p.recruitment"), "", `${canEdit() ? `<button class="btn" id="addApp">+ ${esc(t("r.app.add"))}</button><button class="btn ghost" id="addJob">+ ${esc(t("r.job.add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`)}
     <div class="grid kpis">${D.jobs.filter((j) => j.status !== "closed").map((j) => {
       const a = D.applicants.filter((x) => x.job_id === j.id);
       return `<div class="card kpi click ${j.status === "open" ? "blue" : ""}" data-job="${j.id}"><div class="l">${esc(j.department || "")} ${j.saudi_only ? `<span class="pill s-ok">${esc(t("r.saudi_only"))}</span>` : ""}</div>
@@ -999,7 +999,7 @@ function openApplicant(id) {
 // ================= SIMPLE LIST PAGES =================
 function listPage(key, table, cols, opts = {}) {
   const rows = opts.rows || D[table];
-  $("#view").innerHTML = head(t("p." + key), opts.sub || "", `${canEdit() && !opts.noAdd ? `<button class="btn" id="addRow">+ ${esc(t("add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div>`;
+  $("#view").innerHTML = head(t("p." + key), opts.sub || "", `${canEdit() && !opts.noAdd ? `<button class="btn" id="addRow">+ ${esc(t("add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div>`;
   $("#addRow")?.addEventListener("click", () => openForm(table, null, { preset: opts.preset }));
   dataTable($("#tb"), { id: key, rows, cols, exportName: t("p." + key), onRow: opts.onRow || ((r) => openForm(table, D[table].find((x) => x.id === r.id))), ...opts.table });
 }
@@ -1200,6 +1200,9 @@ PAGES.settings = () => {
         <div style="margin-top:10px"><button class="btn ghost" id="sTest" ${FEATURES.email ? "" : "disabled"}>${esc(t("set.test"))}</button> <span class="msg" id="sTm"></span></div></div>
     </div>
     <button class="btn" id="sSave">${esc(t("save"))}</button> <span class="msg" id="sm"></span>
+    ${isAdmin() ? `<div class="card" style="margin-top:18px"><h3>💾 ${esc(t("sec.backup"))}</h3><p class="muted" style="margin-top:0">${esc(t("sec.backup.d"))}</p>
+      <div class="key-in"><input class="input" id="bkCode" inputmode="numeric" maxlength="6" placeholder="${esc(t("sec.code"))}" dir="ltr" style="max-width:200px"><button class="btn" id="bkGo">⬇ ${esc(t("sec.backup.go"))}</button></div><p class="msg" id="bkMsg"></p>
+      ${D.storage ? `<p class="muted small">${esc(t("sec.storage"))}: <b class="num">${(D.storage / 1048576).toFixed(0)} MB</b> / 512 MB ${D.storage > 400 * 1048576 ? `<span class="pill s-expired">${esc(t("sec.storage.warn"))}</span>` : ""}</p>` : ""}</div>` : ""}
     ${isAdmin() ? `<div class="card keys-card" style="margin-top:18px"><h3>🔑 ${esc(t("k.title"))}</h3><p class="muted" style="margin-top:0">${esc(t("k.desc"))}</p>
       <div class="key-row key-main"><div class="key-h"><b>✦ ${esc(t("k.gem"))}</b> <span class="pill s-info">${esc(t("k.free"))}</span> <span id="kGeSt"></span></div>
         <ol class="key-steps"><li>${t("k.gem.1")}</li><li>${t("k.gem.2")}</li><li>${t("k.gem.3")}</li></ol>
@@ -1212,6 +1215,20 @@ PAGES.settings = () => {
         <ol class="key-steps"><li>${t("k.re.1")}</li><li>${t("k.re.2")}</li></ol>
         <div class="key-in"><input class="input" type="password" id="kRe" placeholder="re_..." dir="ltr" autocomplete="off"><button class="btn" id="kReSave">${esc(t("k.save"))}</button><button class="btn ghost sm" id="kReDel">${esc(t("k.remove"))}</button></div><p class="msg" id="kReMsg"></p></div>
     </div>` : ""}`;
+  $("#bkGo")?.addEventListener("click", async () => {
+    const m = $("#bkMsg"); m.className = "msg"; m.textContent = t("loading");
+    try {
+      const o = await api("/api/backup", { method: "POST", body: { code: $("#bkCode").value.trim() } });
+      const wb = XLSX.utils.book_new();
+      for (const [k, rows] of Object.entries(o.data)) {
+        if (!Array.isArray(rows) || !rows.length) continue;
+        const flat = rows.map((r) => Object.fromEntries(Object.entries(r).map(([a, v]) => [a, v && typeof v === "object" ? JSON.stringify(v) : v])));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(flat), k.slice(0, 30));
+      }
+      XLSX.writeFile(wb, `HR-backup-${o.at.slice(0, 10)}.xlsx`);
+      $("#bkCode").value = ""; m.className = "msg ok"; m.textContent = "✔ " + t("sec.backup.ok");
+    } catch (e) { m.className = "msg err"; m.textContent = e.message; }
+  });
   if (isAdmin()) {
     const pill = (src) => src ? `<span class="pill s-ok">✔ ${esc(t(src === "hosting" ? "k.on.host" : "k.on.site"))}</span>` : `<span class="pill s-expired">${esc(t("k.off"))}</span>`;
     api("/api/settings").then((o) => { $("#kGeSt").innerHTML = pill(o.keys?.gemini); $("#kAiSt").innerHTML = pill(o.keys?.ai); $("#kReSt").innerHTML = pill(o.keys?.email); }).catch(() => {});
@@ -1251,7 +1268,8 @@ PAGES.users = async () => {
   $("#view").innerHTML = `${head(t("p.users"), "", `<button class="btn" id="uAdd">+ ${esc(t("u.add"))}</button>`)}<div class="card" id="tb"><div class="empty">${esc(t("loading"))}</div></div>`;
   const draw = (users) => dataTable($("#tb"), {
     id: "users", rows: users.map((u) => ({ ...u, id: u.id })), exportName: t("p.users"),
-    cols: [{ k: "id", label: t("u.id"), num: true }, { k: "name", label: t("u.name") }, { k: "role", label: t("u.role"), get: (u) => t("role." + u.role) }],
+    cols: [{ k: "id", label: t("u.id"), num: true }, { k: "name", label: t("u.name") }, { k: "role", label: t("u.role"), get: (u) => t("role." + u.role) },
+      { k: "twofa", label: t("sec.2fa"), get: (u) => (u.twofa ? "✔" : "✖"), render: (u) => `<span class="pill ${u.twofa ? "s-ok" : "s-near"}">${esc(u.twofa ? t("sec.on") : t("sec.pending"))}</span>${u.must_change ? ` <span class="pill s-none">${esc(t("sec.mustpw"))}</span>` : ""}` }],
     onRow: (u) => userForm(u, draw),
   });
   $("#uAdd").addEventListener("click", () => userForm(null, draw));
@@ -1265,7 +1283,7 @@ function userForm(u, draw) {
       <div><label class="fl">${esc(t("u.name"))}</label><input class="input" id="un" value="${esc(u?.name || "")}"></div>
       <div><label class="fl">${esc(t("u.role"))}</label><select class="input" id="ur">${["viewer", "editor", "admin"].map((r) => `<option value="${r}" ${u?.role === r ? "selected" : ""}>${esc(t("role." + r))}</option>`).join("")}</select></div>
       <div><label class="fl">${esc(t("u.pw"))}</label><input class="input" id="up" dir="ltr" autocomplete="new-password"></div></div><p class="msg err" id="ue"></p></div>
-    <footer>${u && u.id !== ME.id ? `<button class="btn danger sm" id="udel" style="margin-inline-end:auto">${esc(t("delete"))}</button>` : ""}<button class="btn ghost" data-close>${esc(t("cancel"))}</button><button class="btn" id="us">${esc(t("save"))}</button></footer>`, "sm");
+    <footer>${u && u.id !== ME.id ? `<button class="btn danger sm" id="udel" style="margin-inline-end:auto">${esc(t("delete"))}</button>` : ""}${u?.twofa ? `<button class="btn ghost sm" id="u2fa">📱 ${esc(t("sec.reset2fa"))}</button>` : ""}<button class="btn ghost" data-close>${esc(t("cancel"))}</button><button class="btn" id="us">${esc(t("save"))}</button></footer>`, "sm");
   $("#uid", m.root).addEventListener("change", () => {
     const e = D.employees.find((x) => x.id_no === $("#uid", m.root).value.trim());
     if (e && !$("#un", m.root).value) $("#un", m.root).value = e.name_ar;
@@ -1277,6 +1295,10 @@ function userForm(u, draw) {
       draw((await api("/api/users", { method: "POST", body })).users);
       m.close(); toast(t("saved"));
     } catch (e) { $("#ue", m.root).textContent = e.message; }
+  });
+  $("#u2fa", m.root)?.addEventListener("click", async () => {
+    if (!confirm(t("sec.reset2fa.q"))) return;
+    try { draw((await api("/api/users", { method: "POST", body: { id: u.id, reset2fa: true } })).users); m.close(); toast(t("saved")); } catch (e) { $("#ue", m.root).textContent = e.message; }
   });
   $("#udel", m.root)?.addEventListener("click", async () => {
     if (!confirm(t("confirm.delete"))) return;
@@ -1474,7 +1496,7 @@ PAGES.leaves = () => {
   const onToday = D.leaves.filter((l) => l.status === "approved" && l.start_date <= today && l.end_date >= today);
   const pending = D.leaves.filter((l) => l.status === "pending");
   const daysYear = D.leaves.filter((l) => l.status === "approved" && String(l.start_date).startsWith(year)).reduce((a, l) => a + (Number(l.days) || 0), 0);
-  $("#view").innerHTML = `${head(t("p.leaves"), "", `${canEdit() ? `<button class="btn" id="addLv">+ ${esc(t("lv.add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`)}
+  $("#view").innerHTML = `${head(t("p.leaves"), "", `${canEdit() ? `<button class="btn" id="addLv">+ ${esc(t("lv.add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`)}
     <div class="grid kpis">
       <div class="card kpi blue"><div class="l">${esc(t("lv.ontoday"))}</div><div class="v num">${onToday.length}</div><div class="h">${esc(onToday.map((l) => empName(EMP.get(l.employee_id))).slice(0, 3).join("، "))}</div></div>
       <div class="card kpi orange"><div class="l">${esc(t("lv.pendingk"))}</div><div class="v num">${pending.length}</div></div>
@@ -1524,7 +1546,7 @@ PAGES.leaves = () => {
 
 // ================= MOVEMENTS =================
 PAGES.movements = () => {
-  $("#view").innerHTML = `${head(t("p.movements"), "", `${canEdit() ? `<button class="btn" id="addMv">+ ${esc(t("mv.add"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`)}<div class="card" id="tb"></div>`;
+  $("#view").innerHTML = `${head(t("p.movements"), "", `${canEdit() ? `<button class="btn" id="addMv">+ ${esc(t("mv.add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`)}<div class="card" id="tb"></div>`;
   $("#addMv")?.addEventListener("click", () => openForm("movements", null, { preset: { move_date: new Date().toISOString().slice(0, 10) }, title: t("mv.add") }));
   dataTable($("#tb"), {
     id: "moves", rows: D.movements.filter((x) => EMP.has(x.employee_id)), exportName: t("p.movements"),
@@ -1629,7 +1651,7 @@ PAGES.appraisals = () => {
   const tab = tableState.aprTab || "all";
   const rows = all.filter((a) => tab === "all" || (tab === "open" ? a.status !== "completed" : a.status === "completed"));
   const n = (fn) => all.filter(fn).length;
-  $("#view").innerHTML = `${head(t("p.appraisals"), t("apr.desc"), `${canEdit() ? `<button class="btn" id="addApr">+ ${esc(t("apr.new"))}</button>` : ""}<button class="btn ghost" onclick="print()">${esc(t("print"))}</button>`)}
+  $("#view").innerHTML = `${head(t("p.appraisals"), t("apr.desc"), `${canEdit() ? `<button class="btn" id="addApr">+ ${esc(t("apr.new"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`)}
     <div class="grid kpis">
       <div class="card kpi orange"><div class="l">${esc(APR_STATUS.manager[L() === "en" ? 1 : 0])}</div><div class="v num">${n((a) => a.status === "manager")}</div></div>
       <div class="card kpi blue"><div class="l">${esc(APR_STATUS.employee[L() === "en" ? 1 : 0])}</div><div class="v num">${n((a) => a.status === "employee")}</div></div>
@@ -1734,7 +1756,7 @@ function showReport(k) {
   const st = settings();
   const today = fmtDate(new Date().toISOString());
   $("#printTitle").textContent = t("rep." + k);
-  $("#view").innerHTML = `${head(t("rep." + k), t("rep." + k + ".d"), `<button class="btn ghost" id="repBack">← ${esc(t("rep.back"))}</button><button class="btn" onclick="print()">🖨 ${esc(t("print"))} / PDF</button>`)}
+  $("#view").innerHTML = `${head(t("rep." + k), t("rep." + k + ".d"), `<button class="btn ghost" id="repBack">← ${esc(t("rep.back"))}</button><button class="btn" data-act="print">🖨 ${esc(t("print"))} / PDF</button>`)}
     <div class="report-doc">
       <div class="report-head"><img src="/logo-navy.png" alt="Novotel"><div><b>${esc(t("rep." + k))}</b><span>${esc(st[L() === "en" ? "hotel_name_en" : "hotel_name_ar"])} — ${esc(t("hr"))}</span></div><div class="rmeta">${esc(t("rep.date"))}: <span class="num">${esc(today)}</span><br>${esc(t("rep.prepared"))}: ${esc(ME.name)}</div></div>
       ${buildReport(k)}
@@ -1766,13 +1788,17 @@ function openPassword() {
   const m = modal(`<header><h3>${esc(t("change.password"))}</h3><button class="x" data-close>×</button></header>
     <form class="body" id="pf"><div class="form-grid">
       <div class="full"><label class="fl">${L() === "en" ? "Current password" : "كلمة المرور الحالية"}</label><input class="input" type="password" id="pc" required dir="ltr" autocomplete="current-password"></div>
-      <div class="full"><label class="fl">${L() === "en" ? "New password (6+ characters)" : "كلمة المرور الجديدة (6 خانات على الأقل)"}</label><input class="input" type="password" id="pn" required minlength="6" dir="ltr" autocomplete="new-password"></div>
+      <div class="full"><label class="fl">${esc(t("lg.pw.new"))}</label><input class="input" type="password" id="pn" required minlength="10" dir="ltr" autocomplete="new-password"><p class="muted small" style="margin:4px 0 0">${esc(t("lg.r1"))} • ${esc(t("lg.r2"))} • ${esc(t("lg.r3"))}</p></div>
     </div><p class="msg" id="pm"></p></form>
-    <footer><button class="btn ghost" data-close>${esc(t("cancel"))}</button><button class="btn" id="ps">${esc(t("save"))}</button></footer>`, "sm");
+    <footer><button class="btn ghost sm" id="pall" style="margin-inline-end:auto">🚪 ${esc(t("sec.logoutall"))}</button><button class="btn ghost" data-close>${esc(t("cancel"))}</button><button class="btn" id="ps">${esc(t("save"))}</button></footer>`, "sm");
+  $("#pall", m.root).addEventListener("click", async () => {
+    if (!confirm(t("sec.logoutall.q"))) return;
+    try { await api("/api/password", { method: "POST", body: { logout_all: true } }); location.replace("/"); } catch (e) { $("#pm", m.root).className = "msg err"; $("#pm", m.root).textContent = e.message; }
+  });
   $("#ps", m.root).addEventListener("click", async () => {
     try {
       await api("/api/password", { method: "POST", body: { current: $("#pc", m.root).value, next: $("#pn", m.root).value } });
-      m.close(); toast(t("saved"));
+      m.close(); toast(t("saved")); setTimeout(() => location.reload(), 800);
     } catch (e) { $("#pm", m.root).className = "msg err"; $("#pm", m.root).textContent = e.message; }
   });
 }
@@ -1805,6 +1831,7 @@ function setupIdleLock() {
 (async () => {
   try {
     const me = await api("/api/me");
+    if (me.stage && me.stage !== "full") { location.replace("/"); return; }
     ME = me.user;
     FEATURES = me.features || FEATURES;
     await reload();
@@ -1826,6 +1853,7 @@ function setupIdleLock() {
     route();
   };
   $("#printBtn").onclick = () => window.print();
+  document.addEventListener("click", (e) => { if (e.target.closest('[data-act="print"]')) window.print(); });
   window.addEventListener("hashchange", route);
   route();
 })();

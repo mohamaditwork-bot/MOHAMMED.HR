@@ -8,18 +8,7 @@
   <meta name="theme-color" content="#23234f">
   <meta name="robots" content="noindex, nofollow">
   <title>الموارد البشرية</title>
-  <script>
-    (function () {
-      var th = "light", lg = "ar";
-      try {
-        th = localStorage.getItem("hr_theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-        lg = localStorage.getItem("hr_lang") === "en" ? "en" : "ar";
-      } catch (e) {}
-      document.documentElement.setAttribute("data-theme", th);
-      document.documentElement.lang = lg;
-      document.documentElement.dir = lg === "ar" ? "rtl" : "ltr";
-    })();
-  </script>
+  <script src="/js/boot.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/app.css">

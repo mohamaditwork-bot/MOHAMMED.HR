@@ -19,7 +19,7 @@ function fail(msg) {
 }
 
 function done(d, extra = "") {
-  view.innerHTML = `${extra}<div class="no-print sign-tools"><button class="btn ghost" onclick="print()">🖨 طباعة / حفظ PDF</button></div>${renderDoc(d)}`;
+  view.innerHTML = `${extra}<div class="no-print sign-tools"><button class="btn ghost" data-act="print">🖨 طباعة / حفظ PDF</button></div>${renderDoc(d)}`;
 }
 
 function info(d) {
@@ -110,3 +110,5 @@ function wireSign(build, after) {
 }
 
 load().catch((e) => fail(e.message));
+
+document.addEventListener("click", (e) => { if (e.target.closest('[data-act="print"]')) window.print(); });
