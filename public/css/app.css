@@ -482,3 +482,13 @@ tbody tr:hover .row-acts { opacity: 1; }
 .key-in { display: flex; gap: 8px; flex-wrap: wrap; }
 .key-in .input { flex: 1; min-width: 220px; }
 @media (max-width: 980px) { .ai-log { max-height: none; } .msg-row .bubble { max-width: 92%; } }
+
+.key-row.key-main { border-color: #6b5cc8; box-shadow: 0 4px 14px rgba(107,92,200,.12); }
+.ok-note { background: var(--green-bg); color: var(--green); border-color: transparent; }
+
+.doc-issue { border: 0; border-radius: 99px; padding: 3px 10px; font-size: 12px; font-weight: 700; cursor: pointer; text-align: start; line-height: 1.5; }
+.doc-issue.s-expired { background: var(--red-bg); color: var(--red); }
+.doc-issue.s-near { background: var(--orange-bg); color: var(--orange); }
+.doc-issue.s-none { background: var(--grey-bg); color: var(--muted); }
+.doc-issue b { opacity: .8; margin-inline-start: 4px; }
+.legend { margin: 10px 4px 0; line-height: 1.9; }

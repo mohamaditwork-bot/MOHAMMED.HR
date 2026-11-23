@@ -2,16 +2,19 @@
 // summary of the HR data (no IBANs, phones, emails, addresses or birth dates)
 // and sends it with the user's question.
 import Anthropic from "@anthropic-ai/sdk";
+import { askGemini } from "./gemini.js";
 import { DOC_TYPES, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, docStatus, leavingReason } from "../public/js/logic.js";
 
 const MODEL = "claude-opus-5-5";
 
 export function aiConfigured(env) {
-  return Boolean(env.ANTHROPIC_API_KEY);
+  return Boolean(env.GEMINI_API_KEY || env.ANTHROPIC_API_KEY);
 }
+// Gemini (free) first when its key exists, else Claude.
+export const aiProvider = (env) => (env.GEMINI_API_KEY ? "gemini" : env.ANTHROPIC_API_KEY ? "claude" : null);
 
 // Text summary of the database for the model.
-export function buildContext({ employees, documents, jobs, applicants, rules, tasks, leaves = [], appraisals = [] }, settings) {
+export function buildContext({ employees, documents, jobs, applicants, rules, tasks, leaves = [], appraisals = [] }, settings, { strict = false } = {}) {
   const active = employees.filter((e) => e.status !== "left");
   const staff = active.filter((e) => e.kind === "staff");
   const labor = active.filter((e) => e.kind === "labor");
@@ -72,9 +75,9 @@ export function buildContext({ employees, documents, jobs, applicants, rules, ta
     lines.push(`- ${a.employee.name_ar} (${a.employee.kind === "labor" ? "contractor " + (a.employee.company || "") : a.employee.department || ""}): ${DOC_TYPES[a.doc.doc_type]?.en || a.doc.doc_type} ${a.status === "expired" ? "EXPIRED" : "expires"} ${a.expiry} (${a.days} days)`);
   }
 
-  lines.push("\n## Staff roster (name | department | job title | nationality | join date | basic salary)");
+  lines.push(strict ? "\n## Staff roster (name | department | job title | nationality | join date)" : "\n## Staff roster (name | department | job title | nationality | join date | basic salary)");
   for (const e of staff) {
-    lines.push(`- ${e.name_ar} | ${e.department || "-"} | ${e.job_title || "-"} | ${e.nationality || "-"} | ${e.join_date || "-"} | ${e.basic_salary ?? "-"}`);
+    lines.push(`- ${e.name_ar} | ${e.department || "-"} | ${e.job_title || "-"} | ${e.nationality || "-"} | ${e.join_date || "-"}${strict ? "" : ` | ${e.basic_salary ?? "-"}`}`);
   }
   lines.push("\n## Contractor workers (name | company | department | job title | nationality)");
   for (const e of labor) lines.push(`- ${e.name_ar} | ${e.company || "-"} | ${e.department || "-"} | ${e.job_title || "-"} | ${e.nationality || "-"}`);
@@ -91,8 +94,19 @@ export function buildContext({ employees, documents, jobs, applicants, rules, ta
     lines.push(`\n## Open follow-up tasks (${open.length})`);
     for (const t of open.slice(0, 40)) lines.push(`- [${t.category}] ${t.title}: ${t.person || ""} ${t.details || ""}`);
   }
-  return lines.join("\n");
+  const text = lines.join("\n");
+  // Strict (free external AI): no ID / iqama / phone numbers, no IBANs, no emails.
+  return strict
+    ? text.replace(/\bSA\d{2}[0-9A-Z ]{10,}\b/gi, "[IBAN]").replace(/[^\s@|]+@[^\s@|]+\.[a-z]{2,}/gi, "[email]").replace(/\b\d{9,15}\b/g, "[رقم]")
+    : text;
 }
+
+const MODE_TASK = {
+  chat: "",
+  insights: "Write an executive summary of the current HR situation: 4-6 key findings with numbers, then the top 5 actions for this week.",
+  saudization: "Analyse Saudization: current ratio overall and by department, gaps against the HR target and the localization rules, which roles and departments to localize first, and a realistic hiring plan.",
+  screen: "Screen the applicant below for the job. Give: fit score out of 10, strengths, concerns, Saudization impact, and a recommendation (advance / hold / reject) with one-line reason.",
+};
 
 const SYSTEM = `You are the HR assistant inside the HR control panel of a hotel in Saudi Arabia.
 You help the HR team understand and act on their data: Saudization (Nitaqat and profession localization), document expiries (iqama, passport, work permits, health certificates, contracts, Ajeer), contract renewals and leavers, leaves and travel, performance appraisals, recruitment and workforce analysis.
@@ -107,19 +121,28 @@ Rules:
 
 // mode: "chat" (free question) | "insights" (dashboard summary) | "saudization" | "screen" (one applicant)
 export async function askClaude(env, { messages, context, mode = "chat", lang = "ar" }) {
-  if (!aiConfigured(env)) {
+  if (aiProvider(env) === "gemini") {
+    const task = MODE_TASK[mode];
+    const msgs = (messages || []).slice(-12);
+    const last = msgs.length ? msgs[msgs.length - 1].content : "";
+    try {
+      return await askGemini(env, {
+        system: `${SYSTEM}\n\n${context}`,
+        messages: [...msgs.slice(0, -1), { role: "user", content: [task, lang === "en" ? "Reply in English." : "أجب باللغة العربية.", last].filter(Boolean).join("\n\n") }],
+      });
+    } catch (e) {
+      if (e.status === 429) { const err = new Error("free quota"); err.status = 429; err.free = true; throw err; }
+      throw e;
+    }
+  }
+  if (!env.ANTHROPIC_API_KEY) {
     const err = new Error("AI is not configured (ANTHROPIC_API_KEY missing)");
     err.status = 503;
     throw err;
   }
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const langLine = lang === "en" ? "Reply in English." : "أجب باللغة العربية.";
-  const task = {
-    chat: "",
-    insights: "Write an executive summary of the current HR situation: 4-6 key findings with numbers, then the top 5 actions for this week.",
-    saudization: "Analyse Saudization: current ratio overall and by department, gaps against the HR target and the localization rules, which roles and departments to localize first, and a realistic hiring plan.",
-    screen: "Screen the applicant below for the job. Give: fit score out of 10, strengths, concerns, Saudization impact, and a recommendation (advance / hold / reject) with one-line reason.",
-  }[mode];
+  const task = MODE_TASK[mode];
 
   const response = await client.beta.messages.create({
     model: MODEL,

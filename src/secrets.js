@@ -1,6 +1,7 @@
 // API keys can come from the hosting environment OR be saved by the admin from
 // the site's settings page (stored server-side only, never sent to the browser).
 import Anthropic from "@anthropic-ai/sdk";
+import { pickGeminiModel } from "./gemini.js";
 
 const KEY = "secrets";
 let cache = null, cacheAt = 0;
@@ -18,7 +19,9 @@ export async function withSecrets(env) {
   return {
     ...env,
     HR: env.HR,
-    KEY_SOURCE: { ai: env.ANTHROPIC_API_KEY ? "hosting" : s.anthropic ? "site" : null, email: env.RESEND_API_KEY ? "hosting" : s.resend ? "site" : null },
+    KEY_SOURCE: { ai: env.ANTHROPIC_API_KEY ? "hosting" : s.anthropic ? "site" : null, gemini: env.GEMINI_API_KEY ? "hosting" : s.gemini ? "site" : null, email: env.RESEND_API_KEY ? "hosting" : s.resend ? "site" : null },
+    GEMINI_API_KEY: env.GEMINI_API_KEY || s.gemini || "",
+    GEMINI_MODEL: env.GEMINI_MODEL || s.gemini_model || "",
     ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY || s.anthropic || "",
     RESEND_API_KEY: env.RESEND_API_KEY || s.resend || "",
   };
@@ -49,6 +52,18 @@ export async function saveSecrets(env, body) {
         if (!(e?.status === 429 || e?.status >= 500)) return { error: "تعذر التحقق من المفتاح: " + (e?.message || "خطأ اتصال") };
       }
       s.anthropic = k;
+    }
+  }
+  if ("gemini_key" in body) {
+    const k = String(body.gemini_key || "").trim();
+    if (!k) { delete s.gemini; delete s.gemini_model; }
+    else {
+      if (!/^[A-Za-z0-9_\-]{30,60}$/.test(k)) return { error: "مفتاح Gemini غير صحيح — انسخه كامل من Google AI Studio" };
+      try { s.gemini_model = await pickGeminiModel(k); } catch (e) {
+        if (e?.status === 400 || e?.status === 401 || e?.status === 403) return { error: "Google رفض المفتاح — تأكد إنك نسخته كامل" };
+        return { error: "تعذر التحقق من المفتاح: " + (e?.message || "خطأ اتصال") };
+      }
+      s.gemini = k;
     }
   }
   if ("resend_key" in body) {
