@@ -186,6 +186,9 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 
 ALTER TABLE leaves ADD COLUMN IF NOT EXISTS outside_ksa boolean DEFAULT false;
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS category text;
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS sha256 text;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_id integer;
 
 CREATE TABLE IF NOT EXISTS trash (
   id serial PRIMARY KEY,

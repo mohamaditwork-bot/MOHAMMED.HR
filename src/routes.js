@@ -64,7 +64,8 @@ async function loadAll(env) {
   const db = await getDb(env);
   const out = {};
   for (const [t, cfg] of Object.entries(TABLES)) out[t] = clean(await db.query(`SELECT * FROM ${t} ORDER BY ${cfg.order}`));
-  out.attachments = clean(await db.query("SELECT id, employee_id, document_id, file_name, mime, size, uploaded_by, created_at FROM attachments ORDER BY id DESC"));
+  out.attachments = clean(await db.query("SELECT id, employee_id, document_id, file_name, mime, size, uploaded_by, created_at, category FROM attachments ORDER BY id DESC"));
+  out.storage = (await db.query("SELECT pg_database_size(current_database()) AS bytes"))[0]?.bytes ?? null;
   out.appraisals = clean(await db.query(
     `SELECT id, employee_id, period, manager_name, manager_title, status, total, grade, decision, decision_note,
             manager_signed_at, employee_signed_at, token_mgr, token_emp, expires_at, created_by, created_at FROM appraisals ORDER BY created_at DESC`));
@@ -239,7 +240,19 @@ function dbError(e) {
 }
 
 // ---------- attachments (stored in Postgres, max 4 MB each) ----------
-const FILE_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const FILE_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", DOCX]);
+const FILE_CATS = new Set(["iqama", "passport", "contract", "cv", "iban", "experience", "certificate", "photo", "dependent", "other"]);
+// The real file type from its first bytes (never trust the name or the header alone).
+function sniff(buf) {
+  const b = (i) => buf[i];
+  if (b(0) === 0x25 && b(1) === 0x50 && b(2) === 0x44 && b(3) === 0x46) return "application/pdf";
+  if (b(0) === 0xff && b(1) === 0xd8 && b(2) === 0xff) return "image/jpeg";
+  if (b(0) === 0x89 && b(1) === 0x50 && b(2) === 0x4e && b(3) === 0x47) return "image/png";
+  if (b(0) === 0x52 && b(1) === 0x49 && b(2) === 0x46 && b(3) === 0x46 && b(8) === 0x57 && b(9) === 0x45) return "image/webp";
+  if (b(0) === 0x50 && b(1) === 0x4b && b(2) === 0x03 && b(3) === 0x04) return DOCX;
+  return null;
+}
 const toB64 = (u8) => {
   let s = "";
   for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
@@ -256,12 +269,14 @@ async function files(req, env) {
     const id = parseInt(url.searchParams.get("id"), 10);
     if (!id) return json({ error: "رقم الملف مفقود" }, 400);
     const rows = await db.query("SELECT file_name, mime, encode(data, 'base64') AS b64 FROM attachments WHERE id = $1", [id]);
+    await audit(env, u, "view_file", "attachments", id, null);
     if (!rows.length) return json({ error: "الملف غير موجود" }, 404);
     const f = rows[0];
     return new Response(fromB64(String(f.b64).replace(/\s+/g, "")), {
       headers: {
         "content-type": f.mime,
-        "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(f.file_name)}`,
+        "content-disposition": `${f.mime === DOCX ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(f.file_name)}`,
+        "content-security-policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; plugin-types application/pdf; sandbox",
         "cache-control": "private, no-store",
       },
     });
@@ -275,8 +290,10 @@ async function files(req, env) {
   }
   // POST: raw file body; metadata in headers
   const mime = (req.headers.get("content-type") || "").split(";")[0].trim();
-  if (!FILE_TYPES.has(mime)) return json({ error: "الملف لازم يكون PDF أو صورة" }, 400);
+  if (!FILE_TYPES.has(mime)) return json({ error: "الملف لازم يكون PDF أو صورة أو Word" }, 400);
   const buf = new Uint8Array(await req.arrayBuffer());
+  const real = buf.length > 12 ? sniff(buf) : null;
+  if (!real || (real !== mime && !(real === "image/jpeg" && mime.startsWith("image/")))) return json({ error: "محتوى الملف ما يطابق نوعه — مرفوض" }, 400);
   if (!buf.length) return json({ error: "الملف فاضي" }, 400);
   if (buf.length > MAX_UPLOAD) return json({ error: "الملف أكبر من 4 ميجا" }, 413);
   let name = "file";
@@ -284,11 +301,17 @@ async function files(req, env) {
   const empId = parseInt(req.headers.get("x-employee-id"), 10) || null;
   const docId = parseInt(req.headers.get("x-document-id"), 10) || null;
   if (!empId) return json({ error: "حدد الموظف" }, 400);
+  const cat = FILE_CATS.has(req.headers.get("x-category")) ? req.headers.get("x-category") : null;
+  const hashBuf = new Uint8Array(await crypto.subtle.digest("SHA-256", buf));
+  const sha = [...hashBuf].map((x) => x.toString(16).padStart(2, "0")).join("");
+  const dup = await db.query("SELECT id FROM attachments WHERE employee_id = $1 AND sha256 = $2", [empId, sha]);
+  if (dup.length) return json({ ok: true, id: dup[0].id, duplicate: true });
   const out = await db.query(
-    "INSERT INTO attachments (employee_id, document_id, file_name, mime, size, data, uploaded_by) VALUES ($1,$2,$3,$4,$5, decode($6, 'base64'), $7) RETURNING id",
-    [empId, docId, name, mime, buf.length, toB64(buf), u.name]
+    "INSERT INTO attachments (employee_id, document_id, file_name, mime, size, data, uploaded_by, category, sha256) VALUES ($1,$2,$3,$4,$5, decode($6, 'base64'), $7, $8, $9) RETURNING id",
+    [empId, docId, name, real === "image/jpeg" ? real : mime, buf.length, toB64(buf), u.name, cat, sha]
   );
-  await audit(env, u, "create", "attachments", out[0].id, { name, employee_id: empId, document_id: docId });
+  if (cat === "photo") await db.query("UPDATE employees SET photo_id = $1 WHERE id = $2", [out[0].id, empId]);
+  await audit(env, u, "create", "attachments", out[0].id, { name, employee_id: empId, document_id: docId, category: cat });
   return json({ ok: true, id: out[0].id });
 }
 
