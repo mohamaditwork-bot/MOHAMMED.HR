@@ -19,7 +19,6 @@ import { sendAlertEmail, emailConfigured } from "./alerts.js";
 import { DEFAULT_SETTINGS } from "../public/js/logic.js";
 
 const MAX_UPLOAD = 4 * 1024 * 1024;
-const MAX_FILE = 25 * 1024 * 1024;
 const ID_RE = /^\d{5,15}$/;
 const readJson = (req) => req.json().catch(() => null);
 
@@ -67,6 +66,25 @@ export async function getSettings(env) {
     s = { ...s, iqama: 35, docs: 35, contracts: 75, contract_renew_days: 75, settings_rev: 2 };
     await env.HR.put("settings", JSON.stringify(s));
   }
+  // rev 4: no file archive any more (owner request) — delete every uploaded file once,
+  // including copies kept in the recycle bin, to free the database space.
+  if ((s.settings_rev || 0) < 4) {
+    try {
+      const db = await getDb(env);
+      await db.query("DELETE FROM attachments");
+      await db.query("DROP TABLE IF EXISTS upload_chunks");
+      await db.query("UPDATE employees SET photo_id = NULL WHERE photo_id IS NOT NULL");
+      await db.query("DELETE FROM trash WHERE entity = 'attachments'");
+      await db.query("UPDATE trash SET data = jsonb_set(data, '{related,attachments}', '[]'::jsonb) WHERE data->'related' ? 'attachments'");
+      s = { ...s, settings_rev: 4, twofa_required: (s.settings_rev || 0) < 3 ? true : s.twofa_required };
+      await env.HR.put("settings", JSON.stringify(s));
+    } catch (e) { console.error("file cleanup failed", e); }
+  }
+  // rev 3: two-step verification back on (owner request).
+  if ((s.settings_rev || 0) < 3) {
+    s = { ...s, twofa_required: true, settings_rev: 3 };
+    await env.HR.put("settings", JSON.stringify(s));
+  }
   return { ...DEFAULT_SETTINGS, ...s };
 }
 
@@ -74,7 +92,7 @@ async function loadAll(env) {
   const db = await getDb(env);
   const out = {};
   for (const [t, cfg] of Object.entries(TABLES)) out[t] = clean(await db.query(`SELECT * FROM ${t} ORDER BY ${cfg.order}`));
-  out.attachments = clean(await db.query("SELECT id, employee_id, document_id, file_name, mime, size, uploaded_by, created_at, category FROM attachments ORDER BY id DESC"));
+  out.attachments = []; // the system keeps data only — no uploaded files
   out.storage = (await db.query("SELECT pg_database_size(current_database()) AS bytes"))[0]?.bytes ?? null;
   out.appraisals = clean(await db.query(
     `SELECT id, employee_id, period, manager_name, manager_title, status, total, grade, decision, decision_note,
@@ -221,109 +239,6 @@ function dbError(e) {
 }
 
 // ---------- attachments (stored in Postgres, max 4 MB each) ----------
-const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-const FILE_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", DOCX]);
-const FILE_CATS = new Set(["iqama", "passport", "contract", "offer", "joining", "cv", "iban", "experience", "certificate", "address", "form", "health", "photo", "dependent", "other"]);
-// The real file type from its first bytes (never trust the name or the header alone).
-function sniff(buf) {
-  const b = (i) => buf[i];
-  if (b(0) === 0x25 && b(1) === 0x50 && b(2) === 0x44 && b(3) === 0x46) return "application/pdf";
-  if (b(0) === 0xff && b(1) === 0xd8 && b(2) === 0xff) return "image/jpeg";
-  if (b(0) === 0x89 && b(1) === 0x50 && b(2) === 0x4e && b(3) === 0x47) return "image/png";
-  if (b(0) === 0x52 && b(1) === 0x49 && b(2) === 0x46 && b(3) === 0x46 && b(8) === 0x57 && b(9) === 0x45) return "image/webp";
-  if (b(0) === 0x50 && b(1) === 0x4b && b(2) === 0x03 && b(3) === 0x04) return DOCX;
-  return null;
-}
-const toB64 = (u8) => {
-  let s = "";
-  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
-  return btoa(s);
-};
-const fromB64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-
-async function files(req, env) {
-  const url = new URL(req.url);
-  const u = await requireUser(env, req, { role: req.method === "GET" ? "viewer" : "editor" });
-  if (u instanceof Response) return u;
-  const db = await getDb(env);
-  if (req.method === "GET") {
-    const id = parseInt(url.searchParams.get("id"), 10);
-    if (!id) return json({ error: "رقم الملف مفقود" }, 400);
-    // Large files are fetched in 3 MB parts (?part=0,1,…): the host caps one response at ~4.5 MB.
-    const part = url.searchParams.has("part") ? parseInt(url.searchParams.get("part"), 10) : null;
-    if (part !== null) {
-      if (!(part >= 0 && part < 10)) return json({ error: "جزء غير صحيح" }, 400);
-      const CH = 3 * 1024 * 1024;
-      const r = await db.query("SELECT mime, size, file_name, encode(substring(data from $2 for $3), 'base64') AS b64 FROM attachments WHERE id = $1", [id, part * CH + 1, CH]);
-      if (!r.length) return json({ error: "الملف غير موجود" }, 404);
-      if (part === 0) await audit(env, u, "view_file", "attachments", id, null);
-      return new Response(fromB64(String(r[0].b64).replace(/\s+/g, "")), {
-        headers: { "content-type": "application/octet-stream", "x-total-size": String(r[0].size), "x-parts": String(Math.ceil(r[0].size / CH)), "cache-control": "private, no-store" },
-      });
-    }
-    const big = await db.query("SELECT size FROM attachments WHERE id = $1", [id]);
-    if (big[0] && big[0].size > 4 * 1024 * 1024) return json({ error: "ملف كبير — افتحه من زر «فتح» في الموقع" }, 413);
-    const rows = await db.query("SELECT file_name, mime, encode(data, 'base64') AS b64 FROM attachments WHERE id = $1", [id]);
-    await audit(env, u, "view_file", "attachments", id, null);
-    if (!rows.length) return json({ error: "الملف غير موجود" }, 404);
-    const f = rows[0];
-    return new Response(fromB64(String(f.b64).replace(/\s+/g, "")), {
-      headers: {
-        "content-type": f.mime,
-        "content-disposition": `${f.mime === DOCX ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(f.file_name)}`,
-        "cache-control": "private, no-store",
-      },
-    });
-  }
-  if (req.method === "DELETE") {
-    const body = (await readJson(req)) || {};
-    await toTrash(db, "attachments", parseInt(body.id, 10), u);
-    await db.query("DELETE FROM attachments WHERE id = $1", [parseInt(body.id, 10)]);
-    await audit(env, u, "delete", "attachments", body.id);
-    return json({ ok: true });
-  }
-  // POST: raw file body; metadata in headers
-  const mime = (req.headers.get("content-type") || "").split(";")[0].trim();
-  if (!FILE_TYPES.has(mime)) return json({ error: "الملف لازم يكون PDF أو صورة أو Word" }, 400);
-  let buf = new Uint8Array(await req.arrayBuffer());
-  // Large files arrive in chunks (each under the hosting body limit) and are joined on the last one.
-  const total = parseInt(req.headers.get("x-chunk-total"), 10) || 1;
-  if (total > 1) {
-    const upId = String(req.headers.get("x-upload-id") || "");
-    const idx = parseInt(req.headers.get("x-chunk-index"), 10);
-    if (!/^[a-z0-9]{16,40}$/.test(upId) || !(idx >= 0 && idx < total) || total > 10) return json({ error: "تقسيم غير صحيح" }, 400);
-    if (buf.length > MAX_UPLOAD) return json({ error: "جزء أكبر من المسموح" }, 413);
-    await db.query("DELETE FROM upload_chunks WHERE created_at < now() - interval '1 day'");
-    await db.query("INSERT INTO upload_chunks (upload_id, idx, data, user_id) VALUES ($1,$2, decode($3,'base64'), $4) ON CONFLICT (upload_id, idx) DO UPDATE SET data = EXCLUDED.data",
-      [upId, idx, toB64(buf), u.id]);
-    const have = await db.query("SELECT count(*)::int AS n FROM upload_chunks WHERE upload_id = $1 AND user_id = $2", [upId, u.id]);
-    if (have[0].n < total) return json({ ok: true, partial: idx + 1 });
-    const joined = await db.query("SELECT encode(string_agg(data, ''::bytea ORDER BY idx), 'base64') AS b64 FROM upload_chunks WHERE upload_id = $1 AND user_id = $2", [upId, u.id]);
-    await db.query("DELETE FROM upload_chunks WHERE upload_id = $1", [upId]);
-    buf = fromB64(String(joined[0].b64 || "").replace(/\s+/g, ""));
-  }
-  const real = buf.length > 12 ? sniff(buf) : null;
-  if (!real || (real !== mime && !(real === "image/jpeg" && mime.startsWith("image/")))) return json({ error: "محتوى الملف ما يطابق نوعه — مرفوض" }, 400);
-  if (!buf.length) return json({ error: "الملف فاضي" }, 400);
-  if (buf.length > (total > 1 ? MAX_FILE : MAX_UPLOAD)) return json({ error: "الملف أكبر من 25 ميجا" }, 413);
-  let name = "file";
-  try { name = decodeURIComponent(req.headers.get("x-file-name") || "file").slice(0, 200); } catch {}
-  const empId = parseInt(req.headers.get("x-employee-id"), 10) || null;
-  const docId = parseInt(req.headers.get("x-document-id"), 10) || null;
-  if (!empId) return json({ error: "حدد الموظف" }, 400);
-  const cat = FILE_CATS.has(req.headers.get("x-category")) ? req.headers.get("x-category") : null;
-  const hashBuf = new Uint8Array(await crypto.subtle.digest("SHA-256", buf));
-  const sha = [...hashBuf].map((x) => x.toString(16).padStart(2, "0")).join("");
-  const dup = await db.query("SELECT id FROM attachments WHERE employee_id = $1 AND sha256 = $2", [empId, sha]);
-  if (dup.length) return json({ ok: true, id: dup[0].id, duplicate: true });
-  const out = await db.query(
-    "INSERT INTO attachments (employee_id, document_id, file_name, mime, size, data, uploaded_by, category, sha256) VALUES ($1,$2,$3,$4,$5, decode($6, 'base64'), $7, $8, $9) RETURNING id",
-    [empId, docId, name, real === "image/jpeg" ? real : mime, buf.length, toB64(buf), u.name, cat, sha]
-  );
-  if (cat === "photo") await db.query("UPDATE employees SET photo_id = $1 WHERE id = $2", [out[0].id, empId]);
-  await audit(env, u, "create", "attachments", out[0].id, { name, employee_id: empId, document_id: docId, category: cat });
-  return json({ ok: true, id: out[0].id });
-}
 
 // A leave spent outside the Kingdom needs an exit/re-entry visa covering the same dates.
 async function syncLeaveVisa(db, leave) {
@@ -543,7 +458,6 @@ const ROUTES = {
   "/api/all": { GET: all },
   "/api/rows": { GET: rows, POST: rows, PUT: rows, DELETE: rows },
   "/api/import": { POST: importXlsx },
-  "/api/files": { GET: files, POST: files, DELETE: files },
   "/api/settings": { GET: settings, PUT: settings },
   "/api/audit": { GET: auditLog },
   "/api/ai": { POST: ai },
