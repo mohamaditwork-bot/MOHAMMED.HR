@@ -1193,6 +1193,7 @@ PAGES.settings = () => {
           <div><label class="fl">${esc(t("set.docs"))}</label><input class="input" type="number" id="sD" value="${st.docs}" dir="ltr"></div>
           <div><label class="fl">${esc(t("s.target.set"))}</label><input class="input" type="number" id="sT" value="${st.saudization_target ?? ""}" dir="ltr"></div>
           <div class="full"><label><input type="checkbox" id="sR" ${st.contract_autorenew ? "checked" : ""}> ${esc(t("set.autorenew"))}</label></div>
+          ${isAdmin() ? `<div class="full"><label><input type="checkbox" id="s2fa" ${st.twofa_required ? "checked" : ""}> ${esc(t("set.2fa"))}</label></div>` : ""}
           <div><label class="fl">${esc(t("set.renewdays"))}</label><input class="input" type="number" id="sRD" value="${st.contract_renew_days ?? 75}" dir="ltr"></div>
           <div><label class="fl">${esc(t("set.hotel"))} (AR)</label><input class="input" id="sHA" value="${esc(st.hotel_name_ar)}"></div>
           <div><label class="fl">${esc(t("set.hotel"))} (EN)</label><input class="input" id="sHE" value="${esc(st.hotel_name_en)}" dir="ltr"></div>
@@ -1255,7 +1256,7 @@ PAGES.settings = () => {
   }
   $("#sSave").addEventListener("click", async () => {
     try {
-      await api("/api/settings", { method: "PUT", body: { iqama: $("#sI").value, contracts: $("#sC").value, docs: $("#sD").value, saudization_target: $("#sT").value, contract_autorenew: $("#sR").checked, contract_renew_days: $("#sRD").value, owner_email: $("#sE").value, hotel_name_ar: $("#sHA").value, hotel_name_en: $("#sHE").value } });
+      await api("/api/settings", { method: "PUT", body: { iqama: $("#sI").value, contracts: $("#sC").value, docs: $("#sD").value, saudization_target: $("#sT").value, contract_autorenew: $("#sR").checked, ...($("#s2fa") ? { twofa_required: $("#s2fa").checked } : {}), contract_renew_days: $("#sRD").value, owner_email: $("#sE").value, hotel_name_ar: $("#sHA").value, hotel_name_en: $("#sHE").value } });
       toast(t("saved")); await refresh();
     } catch (e) { $("#sm").textContent = e.message; }
   });

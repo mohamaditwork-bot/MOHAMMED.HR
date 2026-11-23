@@ -30,7 +30,8 @@ export function weakPassword(pw, id) {
   return null;
 }
 
-const nextStage = (u) => (u.must_change ? "pw" : !u.totp?.on ? "setup" : "full");
+// Two-step verification is only enforced when the admin turns it on in Settings.
+const nextStage = (u, need2fa) => (u.must_change ? "pw" : need2fa && !u.totp?.on ? "setup" : "full");
 
 async function notifyOwner(env, settings, subject, lines) {
   try {
@@ -64,7 +65,9 @@ export function loginRoutes({ audit, getSettings }) {
     }
     await clearFails(env, id);
     if (password === id || weakPassword(password, id)) { u.must_change = true; await saveUsers(env, all); }
-    const st = u.must_change ? "pw" : u.totp?.on ? "2fa" : "setup";
+    const need2fa = !!(await getSettings(env)).twofa_required;
+    const st = u.must_change ? "pw" : !need2fa ? "full" : u.totp?.on ? "2fa" : "setup";
+    if (st === "full") await audit(env, { id, name: u.name, ip: clientIp(req) }, "login", null, null, { twofa: false });
     await audit(env, { id, name: u.name, ip: clientIp(req) }, "login_password_ok", null, null, { next: st });
     return json({ ok: true, next: st, user: { id, name: u.name, role: u.role } }, 200, { "set-cookie": await sessionCookie(env, id, Date.now(), { st, sv: u.sv || 0, ua: await uaHash(req) }) });
   }
@@ -96,7 +99,7 @@ export function loginRoutes({ audit, getSettings }) {
     rec.sv = (rec.sv || 0) + 1; // signs out every other device
     await saveUsers(env, all);
     await audit(env, u, "password_change");
-    const st = nextStage(rec);
+    const st = nextStage(rec, !!(await getSettings(env)).twofa_required);
     return json({ ok: true, next: st }, 200, { "set-cookie": await sessionCookie(env, u.id, Date.now(), { st, sv: rec.sv, ua: await uaHash(req) }) });
   }
 

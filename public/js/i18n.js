@@ -54,7 +54,7 @@ const AR = {
   "i.drop": "اسحب الملفات هنا أو اختر ملف/ملفات (تقدر ترفع كذا ملف مرة وحدة)", "i.types": "يتعرف تلقائيًا على: ملف الموظفين الرئيسي • عقود قوى • Casual • مقيم (المقيمين والتابعين) • الخروج والعودة • الإقامات المجددة • تغيير المهن • الخروج النهائي • نقل الخدمات", "i.main": "ملف الموظفين الرئيسي", "i.report": "تقرير وش تغيّر", "i.done": "تم الاستيراد", "e.title": "تصدير البيانات", "e.desc": "نزّل أي جدول كملف Excel.",
   // settings
   "set.thresholds": "حدود التنبيه (أيام قبل الانتهاء)", "set.iqama": "الإقامة", "set.contracts": "العقود", "set.docs": "باقي الوثائق",
-  "set.autorenew": "تجديد تلقائي للعقود — فقط لمن عنده نموذج تجديد موقّع أو قرار تجديد من التقييم", "set.emails": "تنبيهات البريد", "set.test": "أرسل لي التنبيه الآن", "set.owner": "بريدك (التنبيهات توصل لك أنت فقط)", "set.onlyme": "الموقع ما يرسل أي إيميل لأي موظف أو لأي أحد غيرك — حتى لو أحد حاول، الخادم يرفض.",
+  "set.2fa": "طلب رمز التحقق من الجوال عند الدخول (التحقق بخطوتين)", "set.autorenew": "تجديد تلقائي للعقود — فقط لمن عنده نموذج تجديد موقّع أو قرار تجديد من التقييم", "set.emails": "تنبيهات البريد", "set.test": "أرسل لي التنبيه الآن", "set.owner": "بريدك (التنبيهات توصل لك أنت فقط)", "set.onlyme": "الموقع ما يرسل أي إيميل لأي موظف أو لأي أحد غيرك — حتى لو أحد حاول، الخادم يرفض.",
   "set.email.off": "البريد غير مفعّل بعد: أضف مفتاح Resend تحت في «مفاتيح الخدمات».", "set.hotel": "اسم المنشأة",
   "set.daily": "يُرسل تنبيه يومي تلقائيًا الساعة 7 صباحًا (بتوقيت السعودية) لكل وثيقة منتهية أو قريبة.",
   // users
@@ -126,7 +126,7 @@ const EN = {
   "i.title": "Import Excel file", "i.desc": "Upload the staff & workers workbook (same format as yours). Existing records are updated by ID number, never duplicated.",
   "i.drop": "Drop files here or choose one or more files", "i.types": "Auto-detects: main staff workbook • Qiwa contracts • Casual list • Muqeem residents & dependents • exit/re-entry • renewed iqamas • profession changes • final exit • service transfers", "i.main": "Main staff workbook", "i.report": "What changed", "i.done": "Import finished", "e.title": "Export data", "e.desc": "Download any table as an Excel file.",
   "set.thresholds": "Alert thresholds (days before expiry)", "set.iqama": "Iqama", "set.contracts": "Contracts", "set.docs": "Other documents",
-  "set.autorenew": "Auto-renew contracts — only with a signed renewal form or an appraisal renewal decision", "set.emails": "Email alerts", "set.test": "Send me the alert now", "set.owner": "Your email (alerts go to you only)", "set.onlyme": "The site never emails any employee or anyone else — even if someone tries, the server refuses.",
+  "set.2fa": "Require a phone code at login (two-step verification)", "set.autorenew": "Auto-renew contracts — only with a signed renewal form or an appraisal renewal decision", "set.emails": "Email alerts", "set.test": "Send me the alert now", "set.owner": "Your email (alerts go to you only)", "set.onlyme": "The site never emails any employee or anyone else — even if someone tries, the server refuses.",
   "set.email.off": "Email is not enabled yet: add the Resend key below under «Service keys».", "set.hotel": "Organization name",
   "set.daily": "A daily alert is sent automatically at 7 AM (Saudi time) for every expired or expiring document.",
   "u.id": "ID number (username)", "u.name": "Name", "u.role": "Role", "u.pw": "Password (empty = ID number)", "u.add": "New user",
