@@ -53,19 +53,17 @@ export const roleAtLeast = (role, min) => ROLES.indexOf(role) >= ROLES.indexOf(m
 
 // ---------- users (KV key "users": { "<id>": { name, role, hash } }) ----------
 // HR_USERS_SEED secret (JSON array of {id,name,role,hash}) adds any user not stored yet.
-// "Archive assistant" account requested by the owner (editor, used to file the employee archive).
-// Created once; deleting it from the Users page keeps it deleted (users_removed).
-const ARCHIVE_ACCOUNT = { id: "1999999999", name: "مساعد الأرشفة", role: "editor", hash: "pbkdf2$100000$f270f45dc72468e8e9b427da667b4e16$ffda6997441671a94216af5d5f62519dbb31e9112038bb4d027c3f290ab3daac" };
-
+// The temporary "Archive assistant" account (1999999999) is no longer needed: remove it once
+// and keep it removed (owner request — no more file uploads).
 export async function getUsers(env) {
   const users = (await env.HR.get("users", "json")) || {};
-  if (!users[ARCHIVE_ACCOUNT.id] && !(await env.HR.get("archive_account_done"))) {
-    const removed = (await env.HR.get("users_removed", "json")) || [];
-    if (!removed.includes(ARCHIVE_ACCOUNT.id)) {
-      users[ARCHIVE_ACCOUNT.id] = { name: ARCHIVE_ACCOUNT.name, role: ARCHIVE_ACCOUNT.role, hash: ARCHIVE_ACCOUNT.hash };
-      await env.HR.put("users", JSON.stringify(users));
-    }
-    await env.HR.put("archive_account_done", "1");
+  if (!(await env.HR.get("archive_account_removed"))) {
+    const removed = new Set((await env.HR.get("users_removed", "json")) || []);
+    removed.add("1999999999");
+    delete users["1999999999"];
+    await env.HR.put("users", JSON.stringify(users));
+    await env.HR.put("users_removed", JSON.stringify([...removed]));
+    await env.HR.put("archive_account_removed", "1");
   }
   if (env.HR_USERS_SEED) {
     let changed = false;

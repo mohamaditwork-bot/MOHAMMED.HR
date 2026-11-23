@@ -19,7 +19,7 @@ export async function renewContracts(env, settings, user, { dryRun = false, forc
       WHERE d.doc_type = 'contract' AND d.expiry_date IS NOT NULL AND d.expiry_date <= $1 AND e.status <> 'left'
       ORDER BY d.expiry_date`, [limit]);
   const apr = await db.query("SELECT employee_id, decision, status, created_at FROM appraisals WHERE status <> 'manager' ORDER BY created_at DESC");
-  const files = await db.query("SELECT employee_id, file_name, created_at FROM attachments WHERE file_name ~* '(تجديد|renewal|new contract)'");
+  const files = [];
   const isoAt = (rows) => rows.map((r) => ({ ...r, created_at: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at }));
   const aprI = isoAt(apr), filesI = isoAt(files);
   const forced = new Set((force || []).map(Number));
