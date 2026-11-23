@@ -1120,7 +1120,8 @@ PAGES.import = () => {
     </div>
     <div id="impRep"></div>`;
   const up = async (files) => {
-    files = [...(files || [])];
+    // Upload in file-name order (1-…, 2-…) so a corrections file named last is applied after the data files.
+    files = [...(files || [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     if (!files.length) return;
     const im = $("#im"), rep = $("#impRep");
     im.className = "msg"; rep.innerHTML = "";
