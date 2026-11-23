@@ -1,6 +1,7 @@
 // HR control platform — single page app (vanilla ES modules, no build step).
 import { t, f, getLang, setLang } from "./i18n.js";
 import { renderDoc, GRADES, DECISIONS, STATUS as APR_STATUS } from "./appraisal-doc.js";
+import { groupEntries, matchFolder, categorize, CAT_TO_DOC } from "./filematch.js";
 import {
   DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, leavingReason,
 } from "./logic.js";
@@ -85,6 +86,7 @@ const I = {
   movements: "M16 17.01V10h-2v7.01h-3L15 21l4-3.99zM9 3 5 6.99h3V14h2V6.99h3z",
   appraisals: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm-1 7V3.5L18.5 9zM7 18l2.5-3 1.8 2.2L14 14l3 4z",
   reports: "M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H7v-7h2zm4 0h-2V7h2zm4 0h-2v-4h2z",
+  importFiles: "M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8zm2 13-4-4h3V9h2v4h3z",
   trash: "M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z",
   audit: "M13 3a9 9 0 0 0-9 9H1l4 4 4-4H6a7 7 0 1 1 2.1 5l-1.4 1.4A9 9 0 1 0 13 3zm-1 5v5l4.3 2.5.7-1.2-3.5-2.1V8z",
 };
@@ -95,7 +97,7 @@ const NAV = [
   ["nav.people", ["employees", "labor", "leaves", "movements", "appraisals", "dependents"]],
   ["nav.compliance", ["documents", "insurance", "platforms", "tasks"]],
   ["nav.growth", ["saudization", "recruitment"]],
-  ["nav.tools", ["import", "trash"]],
+  ["nav.tools", ["importFiles", "import", "trash"]],
   ["nav.admin", ["settings", "users", "audit"], true],
 ];
 
@@ -625,7 +627,7 @@ function openProfile(id, tab) {
     .map(([k, v]) => `<div><span>${esc(f(k))}</span><b>${esc(k === "status" ? t("emp." + v) : typeof v === "number" || /salary/.test(k) ? fmtNum(v, 2) : fmtDate(v))}</b></div>`)
     .join("");
   const m = modal(`
-    <header><div><h3>${esc(empName(e))}</h3><small>${esc([e.job_title, e.department, e.company, e.id_no].filter(Boolean).join(" • "))}</small></div>
+    <header><div class="prof-h">${e.photo_id ? `<img class="prof-photo" src="/api/files?id=${e.photo_id}" alt="">` : ""}<div><h3>${esc(empName(e))}</h3><small>${esc([e.job_title, e.department, e.company, e.id_no].filter(Boolean).join(" • "))}</small></div></div>
       <div style="display:flex;gap:6px">${canEdit() ? `<button class="btn sm" id="pEdit">${esc(t("edit"))}</button>` : ""}<button class="btn ghost sm" id="pPrint">${esc(t("print"))}</button><button class="x" data-close>×</button></div></header>
     <div class="body">
       <div class="print-head"><img src="/logo-navy.png" alt=""><div class="t"><b>${esc(empName(e))}</b>${esc(settings()[L() === "en" ? "hotel_name_en" : "hotel_name_ar"])} • ${esc(fmtDate(new Date().toISOString()))}</div></div>
@@ -641,7 +643,7 @@ function openProfile(id, tab) {
           <select class="input" id="pFileDoc" style="width:auto"><option value="">${esc(t("files"))}</option>${docs.map((d) => `<option value="${d.id}">${esc(docLabel(d.doc_type))}</option>`).join("")}</select>
           <label class="btn sm">⬆ ${esc(t("file.upload"))}<input type="file" id="pFile" accept=".pdf,image/*" hidden></label><span class="msg" id="pFileMsg"></span></div>` : ""}
         ${fls.length ? `<div class="tbl compact"><table><thead><tr><th>${esc(f("name"))}</th><th>${esc(t("doc.type"))}</th><th class="num">KB</th><th>${esc(t("a.at"))}</th><th></th></tr></thead><tbody>
-          ${fls.map((x) => `<tr><td>📎 ${esc(x.file_name)}</td><td>${esc(x.document_id ? docLabel(D.documents.find((d) => d.id === x.document_id)?.doc_type) : "—")}</td><td class="num">${Math.ceil(x.size / 1024)}</td><td class="num">${esc(fmtDate(x.created_at))}</td>
+          ${fls.slice().sort((a, b) => FCATS.indexOf(a.category || "other") - FCATS.indexOf(b.category || "other")).map((x) => `<tr><td>📎 ${esc(x.file_name)}</td><td>${esc(x.category ? t("fc." + x.category) : x.document_id ? docLabel(D.documents.find((d) => d.id === x.document_id)?.doc_type) : "—")}</td><td class="num">${Math.ceil(x.size / 1024)}</td><td class="num">${esc(fmtDate(x.created_at))}</td>
           <td><a class="btn ghost sm" href="/api/files?id=${x.id}" target="_blank" rel="noopener">${esc(t("file.open"))}</a> ${canEdit() ? `<button class="btn ghost sm" data-delfile="${x.id}">✕</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">${esc(t("file.none"))}</p>`}
       </div>
       <div data-pane="leaves" class="hidden">
@@ -1280,6 +1282,108 @@ function userForm(u, draw) {
     if (!confirm(t("confirm.delete"))) return;
     try { draw((await api("/api/users", { method: "DELETE", body: { id: u.id } })).users); m.close(); } catch (e) { $("#ue", m.root).textContent = e.message; }
   });
+}
+
+// ================= EMPLOYEE FILES (zip → each employee's file) =================
+const FCATS = ["iqama", "passport", "contract", "cv", "iban", "experience", "certificate", "photo", "dependent", "other"];
+const loadScript = (src) => new Promise((ok, no) => { if (document.querySelector(`script[src="${src}"]`)) return ok(); const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+const extMime = (n) => ({ pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: null, docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }[String(n).split(".").pop().toLowerCase()] ?? null);
+async function shrinkImage(blob) {
+  try {
+    const img = await createImageBitmap(blob);
+    const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+    if (k === 1 && blob.size < 600e3) return blob;
+    const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise((r) => c.toBlob((b) => r(b || blob), "image/jpeg", 0.8));
+  } catch { return blob; }
+}
+let FI = null; // current import session
+PAGES.importFiles = () => {
+  if (!canEdit()) { $("#view").innerHTML = `${head(t("p.importFiles"), "")}<div class="card"><p class="muted">${esc(t("no.permission"))}</p></div>`; return; }
+  $("#view").innerHTML = `${head(t("p.importFiles"), t("fi.desc"))}
+    <div class="card"><label class="drop" id="fdrop"><input type="file" id="fzip" accept=".zip" multiple hidden><div>🗂 ${esc(t("fi.drop"))}</div></label>
+      <p class="muted small" style="margin-bottom:0">${t("fi.help")}</p><p class="msg" id="fmsg"></p></div>
+    <div id="fwork"></div>`;
+  const open = async (files) => {
+    const msg = $("#fmsg"); msg.className = "msg"; msg.textContent = t("loading");
+    try {
+      await loadScript("/vendor/jszip.min.js");
+      const entries = [];
+      for (const f of files) {
+        const zip = await window.JSZip.loadAsync(f);
+        zip.forEach((p, e) => { if (!e.dir) entries.push({ path: p, entry: e }); });
+      }
+      const groups = groupEntries(entries.map((x) => x.path));
+      const byPath = new Map(entries.map((x) => [x.path, x.entry]));
+      const emps = D.employees.filter((e) => e.status !== "left");
+      FI = [...groups].map(([folder, list]) => {
+        const m = matchFolder(folder, list, emps);
+        return { folder, emp: m?.emp?.id || "", how: m?.how || "", files: list.map((x) => ({ ...x, entry: byPath.get(x.path), cat: categorize(x.name), skip: !extMime(x.name) })) };
+      }).sort((a, b) => (a.emp ? 1 : 0) - (b.emp ? 1 : 0) || a.folder.localeCompare(b.folder));
+      msg.textContent = "";
+      drawFI();
+    } catch (e) { msg.className = "msg err"; msg.textContent = t("fi.bad") + " " + e.message; }
+  };
+  $("#fzip").addEventListener("change", (e) => { const fs = [...e.target.files]; e.target.value = ""; open(fs); });
+  const dz = $("#fdrop");
+  dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("over"); });
+  dz.addEventListener("dragleave", () => dz.classList.remove("over"));
+  dz.addEventListener("drop", (e) => { e.preventDefault(); dz.classList.remove("over"); open([...e.dataTransfer.files]); });
+  if (FI) drawFI();
+};
+function drawFI() {
+  const empOpts = OPTS.employee_id();
+  const total = FI.reduce((s, g) => s + g.files.filter((f) => !f.skip).length, 0);
+  const unmatched = FI.filter((g) => !g.emp).length;
+  $("#fwork").innerHTML = `<div class="card" style="margin-top:16px">
+    <div class="fi-sum"><div><b>${FI.length}</b><span>${esc(t("fi.folders"))}</span></div><div><b>${total}</b><span>${esc(t("fi.files"))}</span></div><div class="${unmatched ? "warn" : ""}"><b>${unmatched}</b><span>${esc(t("fi.unmatched"))}</span></div></div>
+    ${FI.map((g, gi) => `<div class="fi-group ${g.emp ? "" : "nomatch"}">
+      <div class="fi-gh"><span class="fi-folder">📁 ${esc(g.folder)}</span> ←
+        <select class="input fi-emp" data-g="${gi}"><option value="">— ${esc(t("fi.choose"))} —</option>${empOpts.map(([v, l]) => `<option value="${v}" ${String(g.emp) === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        ${g.how ? `<span class="pill s-ok">${esc(t("fi.how." + g.how))}</span>` : `<span class="pill s-expired">${esc(t("fi.nomatch"))}</span>`}</div>
+      <table class="fi-files"><tbody>${g.files.map((f, fi) => `<tr class="${f.skip ? "skip" : ""}"><td>${f.skip ? "⛔" : "📄"} ${esc(f.name)}</td>
+        <td><select class="input sm" data-c="${gi}:${fi}" ${extMime(f.name) ? "" : "disabled"}>${FCATS.map((c) => `<option value="${c}" ${f.cat === c ? "selected" : ""}>${esc(t("fc." + c))}</option>`).join("")}</select></td>
+        <td><label class="small"><input type="checkbox" data-s="${gi}:${fi}" ${f.skip ? "checked" : ""} ${extMime(f.name) ? "" : "disabled"}> ${esc(t("fi.skip"))}</label></td></tr>`).join("")}</tbody></table></div>`).join("")}
+    <div class="fi-go"><button class="btn" id="fiGo" ${total ? "" : "disabled"}>⬆ ${esc(t("fi.save").replace("{n}", total))}</button><button class="btn ghost" id="fiClear">${esc(t("cancel"))}</button>
+      <div class="fi-bar hidden" id="fiBar"><div></div><span></span></div></div></div>`;
+  $$(".fi-emp").forEach((s) => s.addEventListener("change", () => { FI[+s.dataset.g].emp = s.value ? +s.value : ""; FI[+s.dataset.g].how = s.value ? "manual" : ""; drawFI(); }));
+  $$("[data-c]").forEach((s) => s.addEventListener("change", () => { const [g, f] = s.dataset.c.split(":"); FI[g].files[f].cat = s.value; }));
+  $$("[data-s]").forEach((s) => s.addEventListener("change", () => { const [g, f] = s.dataset.s.split(":"); FI[g].files[f].skip = s.checked; drawFI(); }));
+  $("#fiClear").onclick = () => { FI = null; route(); };
+  $("#fiGo").onclick = uploadFI;
+}
+async function uploadFI() {
+  const jobs = FI.flatMap((g) => g.emp ? g.files.filter((f) => !f.skip).map((f) => ({ g, f })) : []);
+  const bar = $("#fiBar"); bar.classList.remove("hidden"); $("#fiGo").disabled = true;
+  const res = { saved: 0, dup: 0, failed: [], per: new Map() };
+  for (const [i, { g, f }] of jobs.entries()) {
+    bar.querySelector("span").textContent = `${i + 1} / ${jobs.length} — ${f.name}`;
+    bar.querySelector("div").style.width = `${Math.round(((i + 1) / jobs.length) * 100)}%`;
+    try {
+      let mime = extMime(f.name);
+      let blob = await f.entry.async("blob");
+      if (mime.startsWith("image/")) { blob = await shrinkImage(blob); if (blob.type === "image/jpeg") mime = "image/jpeg"; }
+      if (blob.size > 4 * 1024 * 1024) throw new Error(t("fi.big"));
+      const doc = CAT_TO_DOC[f.cat] && D.documents.find((d) => d.employee_id === g.emp && d.doc_type === CAT_TO_DOC[f.cat]);
+      const r = await fetch("/api/files", { method: "POST", body: blob, headers: { "content-type": mime, "x-file-name": encodeURIComponent(f.name), "x-employee-id": String(g.emp), "x-category": f.cat, ...(doc ? { "x-document-id": String(doc.id) } : {}) } });
+      const o = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(o.error || r.status);
+      o.duplicate ? res.dup++ : res.saved++;
+      res.per.set(g.emp, (res.per.get(g.emp) || 0) + (o.duplicate ? 0 : 1));
+    } catch (e) { res.failed.push(`${g.folder}/${f.name}: ${e.message}`); }
+  }
+  const skipped = FI.filter((g) => !g.emp).map((g) => g.folder);
+  FI = null;
+  await reload(); renderNav();
+  $("#fwork").innerHTML = `<div class="card" style="margin-top:16px"><h3>📋 ${esc(t("fi.report"))}</h3>
+    <div class="fi-sum"><div><b>${res.saved}</b><span>${esc(t("fi.saved"))}</span></div><div><b>${res.dup}</b><span>${esc(t("fi.dup"))}</span></div><div class="${res.failed.length ? "warn" : ""}"><b>${res.failed.length}</b><span>${esc(t("fi.failed"))}</span></div></div>
+    <ul>${[...res.per].map(([id, n]) => `<li><a href="#" data-prof="${id}">${esc(empName(EMP.get(id)))}</a> — ${n}</li>`).join("")}</ul>
+    ${res.failed.length ? `<h4>⚠️ ${esc(t("fi.failed"))}</h4><ul>${res.failed.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    ${skipped.length ? `<h4>📁 ${esc(t("fi.unmatched"))}</h4><ul>${skipped.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    <button class="btn ghost" id="fiPrint">🖨 ${esc(t("print"))}</button></div>`;
+  $("#fiPrint").onclick = () => window.print();
+  $$("[data-prof]", $("#fwork")).forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); openProfile(+a.dataset.prof, "files"); }));
 }
 
 const TR_ENT = { employees: "p.employees", documents: "p.documents", dependents: "p.dependents", insurance: "p.insurance", tasks: "p.tasks", leaves: "p.leaves", movements: "p.movements", appraisals: "p.appraisals", attachments: "files", jobs: "r.jobs", applicants: "r.applicants", saud_rules: "s.rules" };

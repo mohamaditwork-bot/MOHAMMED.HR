@@ -492,3 +492,27 @@ tbody tr:hover .row-acts { opacity: 1; }
 .doc-issue.s-none { background: var(--grey-bg); color: var(--muted); }
 .doc-issue b { opacity: .8; margin-inline-start: 4px; }
 .legend { margin: 10px 4px 0; line-height: 1.9; }
+
+/* ===== Employee files import ===== */
+.fi-sum { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.fi-sum div { border: 1px solid var(--line); border-radius: 12px; padding: 8px 16px; min-width: 120px; }
+.fi-sum div.warn { border-color: var(--orange); background: var(--orange-bg); }
+.fi-sum b { display: block; font-size: 22px; }
+.fi-sum span { font-size: 12px; color: var(--muted); }
+.fi-group { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 10px; }
+.fi-group.nomatch { border-color: var(--orange); }
+.fi-gh { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fi-folder { font-weight: 700; direction: ltr; unicode-bidi: plaintext; }
+.fi-emp { width: auto; min-width: 260px; }
+.fi-files { width: 100%; margin-top: 8px; font-size: 13px; }
+.fi-files td { padding: 4px 6px; border-top: 1px dashed var(--line); }
+.fi-files td:first-child { unicode-bidi: plaintext; }
+.fi-files tr.skip { opacity: .5; }
+.fi-files select.input { padding: 4px 8px; height: auto; width: auto; }
+.fi-go { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.fi-bar { flex: 1; min-width: 220px; height: 26px; border-radius: 99px; background: var(--surface-2); position: relative; overflow: hidden; }
+.fi-bar div { position: absolute; inset-block: 0; inset-inline-start: 0; background: linear-gradient(90deg, #23234f, #6b5cc8); width: 0; transition: width .2s; }
+.fi-bar span { position: relative; font-size: 12px; padding: 0 12px; line-height: 26px; color: #fff; mix-blend-mode: difference; }
+.prof-photo { width: 64px; height: 64px; border-radius: 16px; object-fit: cover; border: 2px solid var(--line); }
+
+.prof-h { display: flex; align-items: center; gap: 12px; }
