@@ -69,7 +69,7 @@ export function buildContext({ employees, documents, jobs, applicants, rules, ta
     for (const a of appraisals.slice(0, 40)) lines.push(`- ${byId.get(a.employee_id)?.name_ar || "?"}: ${a.status}${a.total != null ? `, score ${a.total}% (${a.grade})` : ""}${a.decision ? `, contract decision ${a.decision}` : ""}`);
   }
 
-  const alerts = buildAlerts(active, documents.filter((d) => !(d.doc_type === "exit_reentry" && d.expiry_date && String(d.expiry_date).slice(0, 10) < new Date().toISOString().slice(0, 10))), settings);
+  const alerts = buildAlerts(active, documents.filter((d) => !(d.doc_type === "exit_reentry" && d.expiry_date && String(d.expiry_date).slice(0, 10) < new Date().toISOString().slice(0, 10))), settings, undefined, { appraisals, attachments: [] });
   lines.push(`\n## Documents expired or near expiry (${alerts.length})`);
   for (const a of alerts.slice(0, 80)) {
     lines.push(`- ${a.employee.name_ar} (${a.employee.kind === "labor" ? "contractor " + (a.employee.company || "") : a.employee.department || ""}): ${DOC_TYPES[a.doc.doc_type]?.en || a.doc.doc_type} ${a.status === "expired" ? "EXPIRED" : "expires"} ${a.expiry} (${a.days} days)`);
