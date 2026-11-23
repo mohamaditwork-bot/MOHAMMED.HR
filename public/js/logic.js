@@ -70,7 +70,7 @@ export function buildAlerts(employees, documents, settings = DEFAULT_SETTINGS, t
   const out = [];
   for (const d of documents) {
     const e = byId.get(d.employee_id);
-    if (!e || e.status === "left") continue;
+    if (!e || e.status === "left" || !docApplies(e, d.doc_type)) continue;
     const s = docStatus(d, settings, today);
     if (d.doc_type === "exit_reentry" && s.days !== null && s.days < 0) continue; // used / expired visas are not shown
     // A contract with a signed renewal ready is handled (renewed automatically) — no alert.
@@ -152,4 +152,12 @@ export function renewalReady(doc, appraisals = [], attachments = []) {
   const file = attachments.find((a) => a.employee_id === doc.employee_id && /تجديد|renewal|new contract/i.test(a.file_name || "") && String(a.created_at || "").slice(0, 10) > issue);
   if (file) return "file";
   return null;
+}
+
+// Saudi nationals do not need a passport, residence permit (iqama) or work permit on file.
+const SAUDI_NOT_NEEDED = new Set(["passport", "iqama", "work_permit"]);
+export function docApplies(emp, docType) {
+  if (!emp || !SAUDI_NOT_NEEDED.has(docType)) return true;
+  const saudi = isSaudi(emp.nationality) || /^1\d{9}$/.test(String(emp.id_no || ""));
+  return !saudi;
 }

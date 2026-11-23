@@ -61,6 +61,7 @@ function table(ws, must) {
 
 const TYPES = [
   { key: "main", label: "ملف الموظفين والعمالة الرئيسي", test: (names) => names.includes("بيانات الموظفين") },
+  { key: "master", label: "ملف البيانات الرئيسي (Master Data)", test: (names) => names.some((n) => /^active$/i.test(n.trim())) && names.some((n) => /^casual$/i.test(n.trim())) },
   { key: "contracts", label: "العقود (قوى)", test: (_, hdr) => hdr.includes("Contract status") },
   { key: "casual", label: "العمالة المؤقتة (Casual)", test: (_, hdr, first) => /CASUAL LIST/i.test(first) },
   { key: "dependents", label: "مقيم — التابعين", test: (_, hdr) => hdr.includes("صلة القرابة") && hdr.includes("رقم إقامة رب الأسرة") },
@@ -355,6 +356,151 @@ H.services = async (db, wb) => {
   const { rows } = table(wb.Sheets[wb.SheetNames[0]], "نوع الخدمة");
   return { summary: `${rows.length} عملية — سجل فقط، ما يحتاج تحديث`, changes: [] };
 };
+// ---------- Master Data workbook (Active / Third Parti / Permenant Leavers / Casual / Casual Leavers) ----------
+// Excel serial numbers, ISO, d/m/yyyy or d-m-yyyy → ISO date.
+function xdate(v) {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "number") return v <= 10000 || v >= 80000 ? null : new Date(Date.UTC(1899, 11, 30) + v * 864e5).toISOString().slice(0, 10);
+  const s = String(v).trim().replace(/-/g, "/");
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return +m[1] >= 1 && +m[1] <= 31 && +m[2] >= 1 && +m[2] <= 12 ? `${m[3]}-${pad(+m[2])}-${pad(+m[1])}` : null;
+  const d = anyDate(v);
+  return d && /^(19[3-9]\d|20\d\d)-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(d) ? d : null;
+}
+const num = (v) => { const n = Number(String(v ?? "").replace(/[^\d.]/g, "")); return v === null || v === undefined || v === "" || !Number.isFinite(n) ? null : n; };
+const nid = (v) => { const s = String(v ?? "").replace(/\D/g, ""); return /^[12]\d{9}$/.test(s) ? s : null; };
+const GENDER = { male: "ذكر", female: "أنثى", "ذكر": "ذكر", "أنثى": "أنثى" };
+
+// Rows of a sheet as objects, with a getter that finds a column by a pattern on its header.
+function sheetTable(ws, headerTest) {
+  const rows = sheetRows(ws);
+  const h = rows.findIndex((r) => r.some((c) => typeof c === "string" && headerTest.test(c.trim())));
+  if (h < 0) return [];
+  const header = rows[h].map((c) => String(c ?? "").replace(/\s+/g, " ").trim().toLowerCase());
+  return rows.slice(h + 1).filter((r) => r.some((c) => c !== null && c !== "")).map((r) => (re) => {
+    const i = header.findIndex((k) => re.test(k));
+    return i < 0 ? null : r[i];
+  });
+}
+const sheetBy = (wb, re) => wb.Sheets[wb.SheetNames.find((n) => re.test(n.trim()))];
+
+async function upsertPerson(db, map, kind, f, out, stat) {
+  const id = f.id_no;
+  const e = map.get(id);
+  const cols = Object.keys(f).filter((k) => k !== "id_no" && f[k] !== null && f[k] !== undefined && f[k] !== "");
+  if (!e) {
+    const all = ["kind", "status", "id_no", ...cols];
+    const vals = [kind, "active", id, ...cols.map((k) => f[k])];
+    if (!f.name_ar) { all.push("name_ar"); vals.push(f.name_en || id); }
+    const r = await db.query(`INSERT INTO employees (${all.join(",")}) VALUES (${all.map((_, i) => "$" + (i + 1)).join(",")}) RETURNING id, kind, status, name_ar, name_en, id_no, platform`, vals);
+    map.set(id, r[0]);
+    stat.added++;
+    out.push(`➕ ${kind === "labor" ? "عامل" : "موظف"} جديد: ${f.name_ar || f.name_en} (${id})`);
+    return r[0];
+  }
+  if (cols.length) {
+    await db.query(`UPDATE employees SET ${cols.map((k, i) => `${k} = $${i + 1}`).join(", ")}, status = 'active', updated_at = now() WHERE id = $${cols.length + 1}`, [...cols.map((k) => f[k]), e.id]);
+    stat.updated++;
+  }
+  return e;
+}
+
+async function removeLeaver(db, map, id, why, out, stat, keep) {
+  if (!id || keep?.has(id)) return;
+  const e = map.get(id);
+  if (!e || e.status === "left") return;
+  await toTrash(db, "employees", e.id, { name: `ملف Master Data — ${why}` });
+  await db.query("DELETE FROM employees WHERE id = $1", [e.id]);
+  map.delete(id);
+  stat.removed++;
+  out.push(`➖ غادر وانشال من النظام (محفوظ في السلة): ${nm(e)} (${id})`);
+}
+
+H.master = async (db, wb) => {
+  const map = await people(db);
+  const out = [], stat = { added: 0, updated: 0, removed: 0, docs: 0 };
+  const staffRow = (g) => ({
+    id_no: nid(g(/^national id/)), emp_no: g(/^employee id/) ? String(g(/^employee id/)).padStart(6, "0") : null,
+    name_en: txt(g(/^english name/)), name_ar: txt(g(/^arabic name/)), iqama_job: txt(g(/^iqama profession/)),
+    qiwa_job: txt(g(/^qiwa (occupation|titel|title)/)), sector: txt(g(/^division/)), department: txt(g(/^department/)),
+    job_title: txt(g(/^position/)), nationality: txt(g(/^nationality/)), birth_date: xdate(g(/^date of birth/)),
+    mobile: txt(g(/^mobile/)), join_date: xdate(g(/^joining/)), grade: txt(g(/^grade/)), leave_days: num(g(/^annual leave/)),
+    basic_salary: num(g(/^basic salary/)), housing: txt(g(/^housing/)), transport: txt(g(/^transportation/)),
+    total_salary: num(g(/^total salary/)), gender: GENDER[String(g(/^gender/) || "").trim().toLowerCase()] || null,
+    national_address: txt(g(/^national address/)), iban: txt(g(/^iban/))?.replace(/\s+/g, "") || null, bank: txt(g(/^bank/)),
+    email: txt(g(/^email/)), qualification: txt(g(/^qualifcation|^qualification/)), specialty: txt(g(/^major/)),
+    experience: txt(g(/^years of exp/)),
+  });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const lastDay = (g) => { const d = xdate(g(/^last working/)); return d && d <= today ? d : null; };
+  // Everyone still working somewhere in this file: the leaver sheets are history and can list people
+  // who later came back or moved (casual → permanent), so those are never removed.
+  const keep = new Set();
+  for (const [re, h] of [[/^active$/i, /^employee id$/i], [/^third/i, /^employee id$/i]]) {
+    const ws = sheetBy(wb, re);
+    if (ws) for (const g of sheetTable(ws, h)) { const id = nid(g(/^national id/)); if (id) keep.add(id); }
+  }
+  const csWs = sheetBy(wb, /^casual$/i);
+  if (csWs) for (const g of sheetTable(csWs, /^iqama id$/i)) { const id = nid(g(/^iqama id$/)); if (id && !lastDay(g)) keep.add(id); }
+
+  // Active permanent staff
+  const active = sheetBy(wb, /^active$/i);
+  let nActive = 0;
+  if (active) for (const g of sheetTable(active, /^employee id$/i)) {
+    const f = staffRow(g);
+    if (!f.id_no) continue;
+    await upsertPerson(db, map, "staff", f, out, stat);
+    nActive++;
+  }
+  // Permanent leavers
+  const pl = sheetBy(wb, /permenant leavers|permanent leavers/i);
+  if (pl) for (const g of sheetTable(pl, /^employee id$/i)) await removeLeaver(db, map, nid(g(/^national id/)), "موظف غادر", out, stat, keep);
+
+  // Casual (contractor) workers with municipal health card, iqama and Ajeer
+  const cs = sheetBy(wb, /^casual$/i);
+  let nCasual = 0;
+  if (cs) for (const g of sheetTable(cs, /^iqama id$/i)) {
+    const id = nid(g(/^iqama id$/));
+    if (!id) continue;
+    if (lastDay(g)) { await removeLeaver(db, map, id, "عامل غادر", out, stat, keep); continue; }
+    const name = txt(g(/^name$/));
+    const e = await upsertPerson(db, map, "labor", {
+      id_no: id, emp_no: txt(g(/^em\. ?id/)), name_en: name, department: txt(g(/^department/)), job_title: txt(g(/^position/)),
+      iqama_job: txt(g(/^iqama profession/)), nationality: txt(g(/^nationality/)), work_hours: num(g(/^working hours/)),
+      company: txt(g(/^company/)), mobile: txt(g(/^mobile/))?.replace(/\D/g, "") || null, birth_date: xdate(g(/^date of birth/)),
+      join_date: xdate(g(/^joining date/)), start_date: xdate(g(/^actual joining/)), basic_salary: num(g(/^salary/)),
+    }, out, stat);
+    for (const [type, v] of [["health", g(/^baladya card/)], ["iqama", g(/^iqama expiry/)], ["ajeer", g(/^ajeer expiry/)]]) {
+      const d = xdate(v);
+      if (d) { await upsertDoc(db, e.id, type, { expiry: d }); stat.docs++; }
+    }
+    nCasual++;
+  }
+  // Employees of outside companies (third party): contractor workers, not in the hotel's Saudization
+  const third = sheetBy(wb, /^third/i);
+  let nThird = 0;
+  if (third) for (const g of sheetTable(third, /^employee id$/i)) {
+    const f = staffRow(g);
+    if (!f.id_no) continue;
+    const prev = map.get(f.id_no) && (await db.query("SELECT company FROM employees WHERE id = $1", [map.get(f.id_no).id]))[0]?.company;
+    f.company = prev && !/third party/i.test(prev) ? `طرف ثالث (Third Party) — ${prev}` : "طرف ثالث (Third Party)";
+    const e = await upsertPerson(db, map, "labor", f, out, stat);
+    if (e.kind !== "labor") { await db.query("UPDATE employees SET kind = 'labor' WHERE id = $1", [e.id]); e.kind = "labor"; }
+    nThird++;
+  }
+  // Casual leavers
+  const cl = sheetBy(wb, /casual leavers/i);
+  if (cl) for (const r of sheetRows(cl)) {
+    const id = r.map(nid).find(Boolean);
+    if (id) await removeLeaver(db, map, id, "عامل مؤقت غادر", out, stat, keep);
+  }
+  return {
+    summary: `${nActive} موظف • ${nThird} طرف ثالث • ${nCasual} عامل • ${stat.added} جديد • ${stat.updated} محدّث • ${stat.removed} غادروا • ${stat.docs} تاريخ وثيقة`,
+    changes: out,
+  };
+};
+
 H.tasks = async () => ({ summary: "هذا تصدير المتابعات من الموقع نفسه — ما يحتاج استيراد", changes: [] });
 
 export async function applyUpdateFile(db, wb, type) {
