@@ -19,6 +19,7 @@ import { sendAlertEmail, emailConfigured } from "./alerts.js";
 import { DEFAULT_SETTINGS } from "../public/js/logic.js";
 
 const MAX_UPLOAD = 4 * 1024 * 1024;
+const MAX_FILE = 25 * 1024 * 1024;
 const ID_RE = /^\d{5,15}$/;
 const readJson = (req) => req.json().catch(() => null);
 
@@ -216,7 +217,7 @@ function dbError(e) {
 // ---------- attachments (stored in Postgres, max 4 MB each) ----------
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const FILE_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", DOCX]);
-const FILE_CATS = new Set(["iqama", "passport", "contract", "cv", "iban", "experience", "certificate", "photo", "dependent", "other"]);
+const FILE_CATS = new Set(["iqama", "passport", "contract", "offer", "joining", "cv", "iban", "experience", "certificate", "address", "form", "health", "photo", "dependent", "other"]);
 // The real file type from its first bytes (never trust the name or the header alone).
 function sniff(buf) {
   const b = (i) => buf[i];
@@ -242,6 +243,20 @@ async function files(req, env) {
   if (req.method === "GET") {
     const id = parseInt(url.searchParams.get("id"), 10);
     if (!id) return json({ error: "رقم الملف مفقود" }, 400);
+    // Large files are fetched in 3 MB parts (?part=0,1,…): the host caps one response at ~4.5 MB.
+    const part = url.searchParams.has("part") ? parseInt(url.searchParams.get("part"), 10) : null;
+    if (part !== null) {
+      if (!(part >= 0 && part < 10)) return json({ error: "جزء غير صحيح" }, 400);
+      const CH = 3 * 1024 * 1024;
+      const r = await db.query("SELECT mime, size, file_name, encode(substring(data from $2 for $3), 'base64') AS b64 FROM attachments WHERE id = $1", [id, part * CH + 1, CH]);
+      if (!r.length) return json({ error: "الملف غير موجود" }, 404);
+      if (part === 0) await audit(env, u, "view_file", "attachments", id, null);
+      return new Response(fromB64(String(r[0].b64).replace(/\s+/g, "")), {
+        headers: { "content-type": "application/octet-stream", "x-total-size": String(r[0].size), "x-parts": String(Math.ceil(r[0].size / CH)), "cache-control": "private, no-store" },
+      });
+    }
+    const big = await db.query("SELECT size FROM attachments WHERE id = $1", [id]);
+    if (big[0] && big[0].size > 4 * 1024 * 1024) return json({ error: "ملف كبير — افتحه من زر «فتح» في الموقع" }, 413);
     const rows = await db.query("SELECT file_name, mime, encode(data, 'base64') AS b64 FROM attachments WHERE id = $1", [id]);
     await audit(env, u, "view_file", "attachments", id, null);
     if (!rows.length) return json({ error: "الملف غير موجود" }, 404);
@@ -264,11 +279,27 @@ async function files(req, env) {
   // POST: raw file body; metadata in headers
   const mime = (req.headers.get("content-type") || "").split(";")[0].trim();
   if (!FILE_TYPES.has(mime)) return json({ error: "الملف لازم يكون PDF أو صورة أو Word" }, 400);
-  const buf = new Uint8Array(await req.arrayBuffer());
+  let buf = new Uint8Array(await req.arrayBuffer());
+  // Large files arrive in chunks (each under the hosting body limit) and are joined on the last one.
+  const total = parseInt(req.headers.get("x-chunk-total"), 10) || 1;
+  if (total > 1) {
+    const upId = String(req.headers.get("x-upload-id") || "");
+    const idx = parseInt(req.headers.get("x-chunk-index"), 10);
+    if (!/^[a-z0-9]{16,40}$/.test(upId) || !(idx >= 0 && idx < total) || total > 10) return json({ error: "تقسيم غير صحيح" }, 400);
+    if (buf.length > MAX_UPLOAD) return json({ error: "جزء أكبر من المسموح" }, 413);
+    await db.query("DELETE FROM upload_chunks WHERE created_at < now() - interval '1 day'");
+    await db.query("INSERT INTO upload_chunks (upload_id, idx, data, user_id) VALUES ($1,$2, decode($3,'base64'), $4) ON CONFLICT (upload_id, idx) DO UPDATE SET data = EXCLUDED.data",
+      [upId, idx, toB64(buf), u.id]);
+    const have = await db.query("SELECT count(*)::int AS n FROM upload_chunks WHERE upload_id = $1 AND user_id = $2", [upId, u.id]);
+    if (have[0].n < total) return json({ ok: true, partial: idx + 1 });
+    const joined = await db.query("SELECT encode(string_agg(data, ''::bytea ORDER BY idx), 'base64') AS b64 FROM upload_chunks WHERE upload_id = $1 AND user_id = $2", [upId, u.id]);
+    await db.query("DELETE FROM upload_chunks WHERE upload_id = $1", [upId]);
+    buf = fromB64(String(joined[0].b64 || "").replace(/\s+/g, ""));
+  }
   const real = buf.length > 12 ? sniff(buf) : null;
   if (!real || (real !== mime && !(real === "image/jpeg" && mime.startsWith("image/")))) return json({ error: "محتوى الملف ما يطابق نوعه — مرفوض" }, 400);
   if (!buf.length) return json({ error: "الملف فاضي" }, 400);
-  if (buf.length > MAX_UPLOAD) return json({ error: "الملف أكبر من 4 ميجا" }, 413);
+  if (buf.length > (total > 1 ? MAX_FILE : MAX_UPLOAD)) return json({ error: "الملف أكبر من 25 ميجا" }, 413);
   let name = "file";
   try { name = decodeURIComponent(req.headers.get("x-file-name") || "file").slice(0, 200); } catch {}
   const empId = parseInt(req.headers.get("x-employee-id"), 10) || null;

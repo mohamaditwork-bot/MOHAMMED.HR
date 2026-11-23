@@ -190,6 +190,14 @@ ALTER TABLE attachments ADD COLUMN IF NOT EXISTS category text;
 ALTER TABLE attachments ADD COLUMN IF NOT EXISTS sha256 text;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_id integer;
 ALTER TABLE audit ADD COLUMN IF NOT EXISTS ip text;
+CREATE TABLE IF NOT EXISTS upload_chunks (
+  upload_id text NOT NULL,
+  idx integer NOT NULL,
+  data bytea NOT NULL,
+  user_id text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (upload_id, idx)
+);
 
 CREATE TABLE IF NOT EXISTS trash (
   id serial PRIMARY KEY,
