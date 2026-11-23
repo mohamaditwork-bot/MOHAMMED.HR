@@ -13,9 +13,9 @@ export const DOC_TYPES = {
 };
 
 export const DEFAULT_SETTINGS = {
-  iqama: 40,
-  contracts: 80,
-  docs: 30,
+  iqama: 35,
+  contracts: 75,
+  docs: 35,
   contract_autorenew: true,
   contract_renew_days: 75,
   saudization_target: null,
@@ -65,7 +65,7 @@ export function docStatus(doc, settings = DEFAULT_SETTINGS, today = todayUTC()) 
 }
 
 // All documents that are expired or close to expiry, most urgent first.
-export function buildAlerts(employees, documents, settings = DEFAULT_SETTINGS, today = todayUTC()) {
+export function buildAlerts(employees, documents, settings = DEFAULT_SETTINGS, today = todayUTC(), extra = {}) {
   const byId = new Map(employees.map((e) => [e.id, e]));
   const out = [];
   for (const d of documents) {
@@ -73,6 +73,8 @@ export function buildAlerts(employees, documents, settings = DEFAULT_SETTINGS, t
     if (!e || e.status === "left") continue;
     const s = docStatus(d, settings, today);
     if (d.doc_type === "exit_reentry" && s.days !== null && s.days < 0) continue; // used / expired visas are not shown
+    // A contract with a signed renewal ready is handled (renewed automatically) — no alert.
+    if (d.doc_type === "contract" && s.status === "near" && renewalReady(d, (extra.appraisals || []).filter((a) => a.employee_id === d.employee_id), extra.attachments || [])) continue;
     if (s.status === "expired" || s.status === "near") out.push({ ...s, doc: d, employee: e });
   }
   return out.sort((a, b) => a.days - b.days);
@@ -133,5 +135,21 @@ export function leavingReason(contractDoc, appraisals = []) {
   if (det.renewal?.employee_wish === "N") return "الموظف لا يرغب بالتجديد";
   const last = appraisals.find((a) => a.decision);
   if (last?.decision === "not_renew") return "قرار التقييم: عدم التجديد";
+  return null;
+}
+
+// Is there a signed renewal (form or appraisal decision) for the CURRENT contract term?
+// Returns a short label or null. Forms used by an earlier renewal do not count again.
+export function renewalReady(doc, appraisals = [], attachments = []) {
+  const det = (typeof doc?.details === "string" ? JSON.parse(doc.details || "{}") : doc?.details) || {};
+  const issue = doc?.issue_date ? String(doc.issue_date).slice(0, 10) : "";
+  const hist = Array.isArray(det.renewals) ? det.renewals : [];
+  const lastRenewal = hist.length ? String(hist[hist.length - 1].at || "") : "";
+  const r = det.renewal;
+  if (r && r.recommendation === "R" && r.employee_wish !== "N" && !(lastRenewal && (!r.at || String(r.at) <= lastRenewal))) return "form";
+  const apr = appraisals.find((a) => a.status === "completed" && (a.decision === "renew" || a.decision === "renew_conditional") && String(a.created_at || "").slice(0, 10) > issue);
+  if (apr) return "appraisal";
+  const file = attachments.find((a) => a.employee_id === doc.employee_id && /تجديد|renewal|new contract/i.test(a.file_name || "") && String(a.created_at || "").slice(0, 10) > issue);
+  if (file) return "file";
   return null;
 }

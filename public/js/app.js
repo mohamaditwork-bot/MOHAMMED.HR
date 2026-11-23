@@ -3,7 +3,7 @@ import { t, f, getLang, setLang } from "./i18n.js";
 import { renderDoc, GRADES, DECISIONS, STATUS as APR_STATUS } from "./appraisal-doc.js";
 import { groupEntries, matchFolder, categorizeFolder, CAT_TO_DOC } from "./filematch.js";
 import {
-  DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, leavingReason,
+  DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, leavingReason, renewalReady,
 } from "./logic.js";
 
 // ================= helpers =================
@@ -103,7 +103,7 @@ const NAV = [
 
 function renderNav() {
   const st = settings();
-  const alerts = buildAlerts(D.employees, D.documents, st);
+  const alerts = buildAlerts(D.employees, D.documents, st, undefined, { appraisals: D.appraisals || [], attachments: D.attachments || [] });
   const counts = {
     employees: D.employees.filter((e) => e.kind === "staff" && e.status !== "left").length,
     labor: D.employees.filter((e) => e.kind === "labor" && e.status !== "left").length,
@@ -415,7 +415,7 @@ PAGES.dashboard = () => {
   const r = ratio(staff);
   const docSt = D.documents.filter((d) => EMP.get(d.employee_id)?.status !== "left").map((d) => ({ d, s: docStatus(d, st) }));
   const cnt = (s) => docSt.filter((x) => x.s.status === s).length;
-  const alerts = buildAlerts(D.employees, D.documents, st);
+  const alerts = buildAlerts(D.employees, D.documents, st, undefined, { appraisals: D.appraisals || [], attachments: D.attachments || [] });
   const openJobs = D.jobs.filter((j) => j.status === "open");
   const activeApps = D.applicants.filter((a) => !["hired", "rejected"].includes(a.stage));
   const need = saudisNeeded(r, st.saudization_target);
@@ -749,7 +749,7 @@ PAGES.documents = () => {
       { k: "number", label: t("doc.number"), num: true },
       { k: "expiry", label: t("doc.expiry"), num: true, get: (r) => r.s.expiry || r.expiry_date },
       { k: "days", label: t("doc.days"), num: true, get: (r) => r.s.days, render: (r) => (r.s.status === "used" ? "—" : daysCell(r.s.days)) },
-      { k: "status", label: t("doc.status"), get: (r) => t("st." + r.s.status), render: (r) => stPill(r.s.status) },
+      { k: "status", label: t("doc.status"), get: (r) => t("st." + r.s.status), render: (r) => stPill(r.s.status) + (r.doc_type === "contract" && (r.s.status === "near" || r.s.status === "expired") ? (renewalReady(r, (D.appraisals || []).filter((a) => a.employee_id === r.employee_id), D.attachments || []) ? ` <span class="pill s-ok" title="${esc(t("rn.ready.t"))}">📝 ${esc(t("rn.ready"))}</span>` : leavingReason(r) ? "" : ` <span class="pill s-near">⚠️ ${esc(t("rn.noform"))}</span>`) : "") },
       { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<span class="row-acts"><button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>${r.doc_type === "contract" ? `<button class="btn ${r.details?.no_renew ? "danger" : "ghost"} sm" data-leave="${r.id}" title="${esc(t("rn.leave.t"))}">🚪 ${esc(r.details?.no_renew ? t("rn.leaving") : t("rn.leave"))}</button>` : ""}</span>` : "" },
     ],
     filters: [{ k: "type", label: t("filter.type"), get: (r) => docLabel(r.doc_type) }, { k: "kind", label: `${t("p.employees")} / ${t("p.labor")}`, get: (r) => t(r.e.kind === "labor" ? "p.labor" : "p.employees") }],
@@ -782,10 +782,16 @@ async function renewContractsNow() {
       <h4>✅ ${esc(t("rn.will"))} (${prev.renewed.length})</h4>
       <div class="tbl compact" style="max-height:300px;overflow:auto"><table><thead><tr><th>${esc(f("name"))}</th><th>${esc(t("rn.old"))}</th><th>${esc(t("rn.new"))}</th></tr></thead><tbody>
       ${prev.renewed.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${esc(fmtDate(r.from))}</td><td class="num"><b>${esc(fmtDate(r.start))} ← ${esc(fmtDate(r.end))}</b></td></tr>`).join("") || `<tr><td colspan="3" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
+      <h4 style="margin-top:14px">⚠️ ${esc(t("rn.needs"))} (${(prev.needs || []).length})</h4>
+      <div class="tbl compact" style="max-height:260px;overflow:auto"><table><tbody>${(prev.needs || []).map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${esc(fmtDate(r.expiry))}</td><td><button class="btn ghost sm" data-force="${r.employee_id}">🔁 ${esc(t("rn.force"))}</button></td></tr>`).join("") || `<tr><td class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
       <h4 style="margin-top:14px">🚪 ${esc(t("rn.skip"))} (${prev.skipped.length})</h4>
       <ul>${prev.skipped.map((r) => `<li><b>${esc(r.name)}</b> — ${esc(fmtDate(r.expiry))} — ${esc(r.reason)}</li>`).join("") || `<li class="muted">${esc(t("none"))}</li>`}</ul>
       <p class="muted small">${esc(t("rn.help"))}</p></div>
     <footer><button class="btn ghost" data-close>${esc(t("cancel"))}</button>${prev.renewed.length ? `<button class="btn" id="rnGo">🔁 ${esc(t("rn.go").replace("{n}", prev.renewed.length))}</button>` : ""}</footer>`, "wide");
+  $$("[data-force]", m.root).forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm(t("rn.force.q"))) return;
+    try { await api("/api/renew", { method: "POST", body: { force: [+b.dataset.force] } }); m.close(); toast(t("saved")); await refresh(); renewContractsNow(); } catch (e) { toast(e.message, true); }
+  }));
   $("#rnGo", m.root)?.addEventListener("click", async () => {
     try { const o = await api("/api/renew", { method: "POST", body: {} }); m.close(); toast(t("rn.done").replace("{n}", o.renewed.length)); await refresh(); } catch (e) { toast(e.message, true); }
   });
@@ -1706,7 +1712,7 @@ function buildReport(k) {
       <p class="muted small">${esc(t("s.note"))}</p>`;
   }
   if (k === "docs") {
-    const al = buildAlerts(D.employees, D.documents, st);
+    const al = buildAlerts(D.employees, D.documents, st, undefined, { appraisals: D.appraisals || [], attachments: D.attachments || [] });
     const sec = (s) => {
       const list = al.filter((a) => a.status === s);
       return `<h3 class="rsec">${esc(t("st." + s))} (${list.length})</h3>` + reportTable([f("name"), f("id_no"), `${f("department")} / ${f("company")}`, t("doc.type"), t("doc.expiry"), t("doc.days")],

@@ -61,7 +61,12 @@ async function audit(env, user, action, entity, entityId, details) {
 }
 
 export async function getSettings(env) {
-  const s = (await env.HR.get("settings", "json")) || {};
+  let s = (await env.HR.get("settings", "json")) || {};
+  // One-time update (rev 2): 35 days for iqama and all documents, 75 days for contracts.
+  if ((s.settings_rev || 0) < 2) {
+    s = { ...s, iqama: 35, docs: 35, contracts: 75, contract_renew_days: 75, settings_rev: 2 };
+    await env.HR.put("settings", JSON.stringify(s));
+  }
   return { ...DEFAULT_SETTINGS, ...s };
 }
 
@@ -515,7 +520,7 @@ async function renewNow(req, env) {
   const u = await requireUser(env, req, { role: "editor" });
   if (u instanceof Response) return u;
   const body = (await readJson(req)) || {};
-  const out = await renewContracts(env, await getSettings(env), u, { dryRun: !!body.dry_run });
+  const out = await renewContracts(env, await getSettings(env), u, { dryRun: !!body.dry_run, force: Array.isArray(body.force) ? body.force : [] });
   if (!body.dry_run) await audit(env, u, "renew_contracts", "documents", null, { renewed: out.renewed.length, skipped: out.skipped.length });
   return json(out);
 }

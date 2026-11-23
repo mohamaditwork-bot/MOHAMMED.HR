@@ -74,7 +74,7 @@ export async function sendAlertEmail(env, settings, data, { force = false } = {}
   if (!owner) return { sent: false, reason: "لم يتم تحديد بريدك في الإعدادات" };
   const today = new Date().toISOString().slice(0, 10);
   const docs = data.documents.filter((d) => !(d.doc_type === "exit_reentry" && d.expiry_date && String(d.expiry_date).slice(0, 10) < today));
-  const alerts = buildAlerts(data.employees, docs, settings);
+  const alerts = buildAlerts(data.employees, docs, settings, undefined, { appraisals: data.appraisals || [], attachments: data.attachments || [] });
   if (!alerts.length && !force) return { sent: false, reason: "nothing to report", count: 0 };
   const expired = alerts.filter((a) => a.status === "expired").length;
   const subject = `تنبيه الوثائق — ${expired} منتهية، ${alerts.length - expired} قريبة الانتهاء`;
