@@ -124,7 +124,8 @@ async function users(req, env) {
   const existed = Boolean(all[id]);
   const removedList = (await env.HR.get("users_removed", "json")) || [];
   if (removedList.includes(id)) await env.HR.put("users_removed", JSON.stringify(removedList.filter((x) => x !== id)));
-  all[id] = { ...(all[id] || {}), name, role, hash: pw ? await hashPassword(pw) : all[id].hash, ...(pw ? { must_change: true, sv: (all[id]?.sv || 0) + 1 } : {}) };
+  const weak = pw && (pw === id || pw.length < 10 || !/[A-Za-z\u0600-\u06FF]/.test(pw) || !/\d/.test(pw));
+  all[id] = { ...(all[id] || {}), name, role, hash: pw ? await hashPassword(pw) : all[id].hash, ...(pw ? { must_change: !!weak, sv: (all[id]?.sv || 0) + 1 } : {}) };
   await saveUsers(env, all);
   await clearFails(env, id);
   await audit(env, me, existed ? "update" : "create", "user", id, { name, role });
@@ -394,6 +395,7 @@ async function settings(req, env) {
     next.saudization_target = t === null || (t >= 0 && t <= 100) ? t : current.saudization_target;
   }
   if ("contract_autorenew" in body) next.contract_autorenew = Boolean(body.contract_autorenew);
+  if ("twofa_required" in body) next.twofa_required = Boolean(body.twofa_required);
   if ("contract_renew_days" in body) next.contract_renew_days = Math.max(1, Math.min(180, parseInt(body.contract_renew_days, 10) || 75));
   if ("owner_email" in body) {
     const e = String(body.owner_email || "").trim().toLowerCase();
