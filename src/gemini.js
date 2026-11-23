@@ -3,7 +3,7 @@ const BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 // Pick the newest stable "flash" model the key can use (free tier friendly).
 export async function pickGeminiModel(key) {
-  const r = await fetch(`${BASE}/models?pageSize=200&key=${encodeURIComponent(key)}`);
+  const r = await fetch(`${BASE}/models?pageSize=200`, { headers: { "x-goog-api-key": key } });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) {
     const err = new Error(body?.error?.message || `Gemini ${r.status}`);
@@ -24,7 +24,7 @@ export async function pickGeminiModel(key) {
 export async function askGemini(env, { system, messages, maxTokens = 8000 }) {
   const r = await fetch(`${BASE}/openai/chat/completions`, {
     method: "POST",
-    headers: { authorization: `Bearer ${env.GEMINI_API_KEY}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${env.GEMINI_API_KEY}`, "x-goog-api-key": env.GEMINI_API_KEY, "content-type": "application/json" },
     body: JSON.stringify({
       model: env.GEMINI_MODEL || "gemini-2.5-flash",
       max_tokens: maxTokens,

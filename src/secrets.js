@@ -58,7 +58,7 @@ export async function saveSecrets(env, body) {
     const k = String(body.gemini_key || "").trim();
     if (!k) { delete s.gemini; delete s.gemini_model; }
     else {
-      if (!/^[A-Za-z0-9_\-]{30,60}$/.test(k)) return { error: "مفتاح Gemini غير صحيح — انسخه كامل من Google AI Studio" };
+      if (!/^[A-Za-z0-9_.\-]{30,200}$/.test(k)) return { error: "مفتاح Gemini غير صحيح — انسخه كامل من Google AI Studio" };
       try { s.gemini_model = await pickGeminiModel(k); } catch (e) {
         if (e?.status === 400 || e?.status === 401 || e?.status === 403) return { error: "Google رفض المفتاح — تأكد إنك نسخته كامل" };
         return { error: "تعذر التحقق من المفتاح: " + (e?.message || "خطأ اتصال") };
