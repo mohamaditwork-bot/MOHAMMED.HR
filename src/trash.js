@@ -71,6 +71,12 @@ export async function trashRoute(req, env, user, audit) {
     return json({ ok: true });
   }
   const snap = typeof t.data === "string" ? JSON.parse(t.data) : t.data;
+  // A "left" marker from manual corrections: restoring just lets the next import add the person again.
+  if (snap?.marker) {
+    await db.query("DELETE FROM trash WHERE id = $1", [id]);
+    await audit(env, user, "restore", t.entity, t.entity_id, { label: t.label });
+    return json({ ok: true });
+  }
   try {
     await insertRow(db, t.entity, snap.row);
     for (const c of [...CHILDREN, "attachments"]) for (const r of snap.related?.[c] || []) await insertRow(db, c, r);

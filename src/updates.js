@@ -62,6 +62,7 @@ function table(ws, must) {
 const TYPES = [
   { key: "main", label: "ملف الموظفين والعمالة الرئيسي", test: (names) => names.includes("بيانات الموظفين") },
   { key: "master", label: "ملف البيانات الرئيسي (Master Data)", test: (names) => names.some((n) => /^active$/i.test(n.trim())) && names.some((n) => /^casual$/i.test(n.trim())) },
+  { key: "fixes", label: "تصحيحات يدوية", test: (names, hdr) => names.some((n) => n.trim() === "تصحيحات") || (hdr.includes("الإجراء") && hdr.includes("رقم الهوية")) },
   { key: "contracts", label: "العقود (قوى)", test: (_, hdr) => hdr.includes("Contract status") },
   { key: "casual", label: "العمالة المؤقتة (Casual)", test: (_, hdr, first) => /CASUAL LIST/i.test(first) },
   { key: "dependents", label: "مقيم — التابعين", test: (_, hdr) => hdr.includes("صلة القرابة") && hdr.includes("رقم إقامة رب الأسرة") },
@@ -141,6 +142,8 @@ H.contracts = async (db, wb) => {
         out.push(`⚠️ ${nm(e)} (${id}) ما عنده عقد ساري في قوى — الحالة: ${txt(list[list.length - 1]["Contract status"])}`);
         await addTask(db, "platform", "بدون عقد ساري في قوى", nm(e), id, txt(list[list.length - 1]["Contract status"]));
       }
+    } else if (active && !e && (await removedByHand(db, id))) {
+      out.push(`⏭ ${txt(active["Employee name"])} (${id}) عقده ساري في قوى بس سبق وانشال يدويًا (غادر) — تأكد من إنهاء عقده في قوى`);
     } else if (active && !e) {
       // New hire: an active Qiwa contract but not in the system yet → add as staff right away.
       const name = txt(active["Employee name"]) || id;
@@ -405,6 +408,12 @@ const sameVal = (a, b) => {
   return x === y || (x !== "" && Number(x) === Number(y));
 };
 
+// Someone removed from the system with a manual correction (left / resigned).
+async function removedByHand(db, id) {
+  const r = await db.query("SELECT 1 FROM trash WHERE entity = 'employees' AND deleted_by = 'تصحيحات' AND data->'row'->>'id_no' = $1 LIMIT 1", [id]);
+  return r.length > 0;
+}
+
 async function upsertPerson(db, map, kind, f, out, stat) {
   const id = f.id_no;
   const e = map.get(id);
@@ -415,6 +424,7 @@ async function upsertPerson(db, map, kind, f, out, stat) {
   if (f.mobile) { const m = String(f.mobile).replace(/\D/g, "").replace(/^(00966|966)/, ""); f.mobile = m.length >= 9 ? (m.startsWith("0") ? m : "0" + m) : null; }
   if (f.iban) f.iban = String(f.iban).replace(/\s+/g, "").toUpperCase();
   let cols = Object.keys(f).filter((k) => k !== "id_no" && f[k] !== null && f[k] !== undefined && f[k] !== "");
+  if (!e && (await removedByHand(db, id))) { out.push(`⏭ ${f.name_ar || f.name_en} (${id}) سبق وانشال يدويًا (غادر) — ما انضاف`); return null; }
   if (!e) {
     const all = ["kind", "status", "id_no", ...cols];
     const vals = [kind, "active", id, ...cols.map((k) => f[k])];
@@ -505,10 +515,11 @@ H.master = async (db, wb) => {
       company: txt(g(/^company/)), mobile: txt(g(/^mobile/))?.replace(/\D/g, "") || null, birth_date: xdate(g(/^date of birth/)),
       join_date: xdate(g(/^joining date/)), start_date: xdate(g(/^actual joining/)), basic_salary: num(g(/^salary/)),
     }, out, stat);
+    if (!e) continue;
     for (const [type, v] of [["health", g(/^baladya card/)], ["iqama", g(/^iqama expiry/)], ["ajeer", g(/^ajeer expiry/)]]) {
       const d = xdate(v);
       // Only fill a missing date or move it forward — Muqeem/renewals may already hold a newer one.
-      if (d) { const old = await docExpiry(db, e.id, type); if (!old || d > old) { await upsertDoc(db, e.id, type, { expiry: d }); stat.docs++; } }
+      if (d) { const old = await docExpiry(db, e.id, type); if (!old || type !== "iqama" || d > old) { await upsertDoc(db, e.id, type, { expiry: d }); stat.docs++; } }
     }
     nCasual++;
   }
@@ -521,6 +532,7 @@ H.master = async (db, wb) => {
     const prev = map.get(f.id_no) && (await db.query("SELECT company FROM employees WHERE id = $1", [map.get(f.id_no).id]))[0]?.company;
     f.company = prev && !/third party/i.test(prev) ? `طرف ثالث (Third Party) — ${prev}` : "طرف ثالث (Third Party)";
     const e = await upsertPerson(db, map, "labor", f, out, stat);
+    if (!e) continue;
     if (e.kind !== "labor") { await db.query("UPDATE employees SET kind = 'labor' WHERE id = $1", [e.id]); e.kind = "labor"; }
     nThird++;
   }
@@ -534,6 +546,75 @@ H.master = async (db, wb) => {
     summary: `${nActive} موظف • ${nThird} طرف ثالث • ${nCasual} عامل • ${stat.added} جديد • ${stat.updated} محدّث • ${stat.removed} غادروا • ${stat.docs} تاريخ وثيقة`,
     changes: out,
   };
+};
+
+// ---------- Manual corrections: one row per change ----------
+// Columns: رقم الهوية | الاسم | الإجراء | الحقل | القيمة | السبب
+//   حذف            → remove (kept in the recycle bin) — never re-added by later files
+//   تعديل          → set a field (Arabic label or column name) to القيمة
+//   وثيقة          → set a document's expiry (الحقل = الإقامة / الجواز / الشهادة الصحية / أجير / رخصة العمل / العقد)
+//   عدم تجديد      → contract will not be renewed (السبب shown in alerts)
+//   متابعة         → open a follow-up task
+const FIX_FIELDS = { "الاسم عربي": "name_ar", "الاسم": "name_ar", "الاسم إنجليزي": "name_en", "الجوال": "mobile", "الإيميل": "email", "القسم": "department", "القطاع": "sector", "المسمى": "job_title", "المسمى الوظيفي": "job_title", "مهنة قوى": "qiwa_job", "مهنة الإقامة": "iqama_job", "الجنسية": "nationality", "الجنس": "gender", "الميلاد": "birth_date", "الانضمام": "join_date", "المباشرة": "start_date", "الدرجة": "grade", "الإجازة": "leave_days", "الأساسي": "basic_salary", "الراتب الأساسي": "basic_salary", "السكن": "housing", "النقل": "transport", "الإجمالي": "total_salary", "الراتب الإجمالي": "total_salary", "البنك": "bank", "الآيبان": "iban", "الشركة": "company", "الرقم الوظيفي": "emp_no", "ساعات العمل": "work_hours", "ملاحظات": "notes" };
+const FIX_DOCS = { "الإقامة": "iqama", "الجواز": "passport", "الشهادة الصحية": "health", "أجير": "ajeer", "رخصة العمل": "work_permit", "العقد": "contract", "التأمين": "insurance" };
+
+H.fixes = async (db, wb) => {
+  const ws = wb.Sheets[wb.SheetNames.find((n) => n.trim() === "تصحيحات") || wb.SheetNames[0]];
+  const { rows } = table(ws, "الإجراء");
+  const map = await people(db);
+  const cols = new Set((await db.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'employees'")).map((c) => c.column_name));
+  const out = [];
+  let done = 0;
+  for (const r of rows) {
+    const id = String(r["رقم الهوية"] ?? "").replace(/\D/g, "");
+    const act = txt(r["الإجراء"]), field = txt(r["الحقل"]), why = txt(r["السبب"]);
+    let val = r["القيمة"];
+    const e = map.get(id);
+    if (!act) continue;
+    if (!e && act === "حذف" && /^[12]\d{9}$/.test(id)) {
+      // Not in the system (yet): remember the removal so later files never add them back.
+      if (!(await removedByHand(db, id))) await db.query("INSERT INTO trash (entity, entity_id, label, data, extra_count, deleted_by) VALUES ('employees', $1, $2, $3, 0, 'تصحيحات')", [id, txt(r["الاسم"]) || id, JSON.stringify({ row: { id_no: id, name_ar: txt(r["الاسم"]) }, related: {}, marker: true })]);
+      out.push(`➖ ${txt(r["الاسم"]) || id} (${id}) مسجل كمغادر — ما راح ينضاف من أي ملف — ${why || "غادر"}`);
+      done++;
+      continue;
+    }
+    if (!e) { out.push(`❔ ${txt(r["الاسم"]) || id} (${id}) غير موجود في النظام — «${act}» ما تنفّذ (ارفع ملف التصحيحات آخر شي)`); continue; }
+    if (act === "حذف") {
+      await toTrash(db, "employees", e.id, { name: "تصحيحات" });
+      await db.query("DELETE FROM employees WHERE id = $1", [e.id]);
+      map.delete(id);
+      out.push(`➖ ${nm(e)} (${id}) انشال من النظام — ${why || "غادر"} (محفوظ في السلة)`);
+    } else if (act === "تعديل") {
+      const col = FIX_FIELDS[field] || (cols.has(field) ? field : null);
+      if (!col || ["id", "id_no", "kind", "status", "platform"].includes(col)) { out.push(`❔ ${nm(e)}: الحقل «${field}» غير معروف`); continue; }
+      if (/_date$/.test(col)) val = anyDate(val);
+      else if (["basic_salary", "total_salary", "leave_days", "work_hours"].includes(col)) val = Number(String(val).replace(/[^\d.]/g, "")) || null;
+      else val = txt(val);
+      if (col === "mobile" && val) { const m = val.replace(/\D/g, "").replace(/^(00966|966)/, ""); val = m.startsWith("0") ? m : "0" + m; }
+      if (col === "iban" && val) val = val.replace(/\s+/g, "").toUpperCase();
+      if (col === "nationality") val = natAr(val);
+      await db.query(`UPDATE employees SET ${col} = $1, updated_at = now() WHERE id = $2`, [val, e.id]);
+      out.push(`✏️ ${nm(e)}: ${field} ← ${val ?? "فاضي"}`);
+    } else if (act === "وثيقة") {
+      const type = FIX_DOCS[field] || field;
+      const d = anyDate(val);
+      if (!d) { out.push(`❔ ${nm(e)}: تاريخ ${field} غير مفهوم («${val ?? ""}»)`); continue; }
+      await upsertDoc(db, e.id, type, { expiry: d });
+      out.push(`📄 ${nm(e)}: انتهاء ${field} ← ${d}`);
+    } else if (act === "عدم تجديد") {
+      const c = (await db.query("SELECT id, details FROM documents WHERE employee_id = $1 AND doc_type = 'contract'", [e.id]))[0];
+      const det = { ...(typeof c?.details === "string" ? JSON.parse(c.details || "{}") : c?.details || {}), no_renew: true, no_renew_reason: why || "مغادر" };
+      if (c) await db.query("UPDATE documents SET details = $1, updated_at = now() WHERE id = $2", [JSON.stringify(det), c.id]);
+      else await upsertDoc(db, e.id, "contract", { details: det });
+      await addTask(db, "contract", "مغادر — لا يجدد عقده", nm(e), id, why || "");
+      out.push(`🚪 ${nm(e)} (${id}) ما يتجدد عقده — ${why || "مغادر"}`);
+    } else if (act === "متابعة") {
+      await addTask(db, "followup", field || "متابعة", nm(e), id, txt(val) || why || "");
+      out.push(`📌 ${nm(e)}: متابعة — ${field || ""} ${txt(val) || why || ""}`.trim());
+    } else { out.push(`❔ ${nm(e)}: إجراء غير معروف «${act}»`); continue; }
+    done++;
+  }
+  return { summary: `${done} تصحيح تنفّذ`, changes: out };
 };
 
 H.tasks = async () => ({ summary: "هذا تصدير المتابعات من الموقع نفسه — ما يحتاج استيراد", changes: [] });
