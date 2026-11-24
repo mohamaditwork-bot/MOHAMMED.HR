@@ -26,7 +26,7 @@ const AR = {
   "k.nodate": "وثائق بدون تاريخ", "k.openjobs": "وظائف شاغرة", "k.applicants": "متقدمون نشطون", "k.tasks": "متابعات مفتوحة",
   "k.target": "الهدف الداخلي", "k.needed": "سعوديون مطلوبون للهدف",
   "c.saud": "السعودة", "c.dept": "الموظفون حسب القسم", "c.nat": "الجنسيات", "c.docs": "حالة الوثائق", "c.company": "العمالة حسب الشركة",
-  "c.funnel": "مراحل التوظيف", "urgent": "تنبيهات عاجلة", "ai.insights": "ملخص ذكي", "ai.generate": "حلّل بالذكاء الاصطناعي",
+  "c.funnel": "مراحل التوظيف", "urgent": "تنبيهات عاجلة", "u.staff": "الموظفين الدائمين", "u.labor": "العمالة والمقاولين", "ai.insights": "ملخص ذكي", "ai.generate": "حلّل بالذكاء الاصطناعي",
   // documents
   "doc.type": "نوع الوثيقة", "doc.number": "رقم الوثيقة", "doc.issue": "تاريخ الإصدار", "doc.expiry": "تاريخ الانتهاء", "doc.days": "المتبقي (يوم)",
   "doc.status": "الحالة", "doc.owner": "صاحب الوثيقة", "doc.add": "إضافة وثيقة", "doc.renew": "تجديد",
@@ -105,7 +105,7 @@ const EN = {
   "k.nodate": "Documents without date", "k.openjobs": "Open positions", "k.applicants": "Active applicants", "k.tasks": "Open follow-ups",
   "k.target": "Internal target", "k.needed": "Saudis needed for target",
   "c.saud": "Saudization", "c.dept": "Staff by department", "c.nat": "Nationalities", "c.docs": "Document status", "c.company": "Workers by company",
-  "c.funnel": "Hiring pipeline", "urgent": "Urgent alerts", "ai.insights": "AI summary", "ai.generate": "Analyse with AI",
+  "c.funnel": "Hiring pipeline", "urgent": "Urgent alerts", "u.staff": "Permanent staff", "u.labor": "Labor & contractors", "ai.insights": "AI summary", "ai.generate": "Analyse with AI",
   "doc.type": "Document", "doc.number": "Number", "doc.issue": "Issue date", "doc.expiry": "Expiry date", "doc.days": "Days left",
   "doc.status": "Status", "doc.owner": "Holder", "doc.add": "Add document", "doc.renew": "Renew",
   "s.overall": "Overall ratio (permanent staff)", "s.bydept": "Saudization by department", "s.bytitle": "Saudization by job title",
