@@ -50,7 +50,7 @@ export async function pickGeminiModel(key) {
 
 // A model-specific failure (retired, unknown, out of quota) → try the next model.
 const NEXT_MODEL = /no longer available|not found|not supported|deprecated|retired|is not available/i;
-const tryNext = (e) => e.status === 429 || e.status === 404 || ((e.status === 400 || e.status === 403) && NEXT_MODEL.test(e.message || ""));
+const tryNext = (e) => e.status === 429 || e.status === 404 || e.status >= 500 || ((e.status === 400 || e.status === 403) && NEXT_MODEL.test(e.message || ""));
 
 export async function askGemini(env, args) {
   let models;
@@ -80,6 +80,7 @@ async function askGeminiOnce(env, model, { system, messages, maxTokens = 8000 })
   if (!r.ok) {
     const err = new Error(body?.error?.message || (Array.isArray(body) ? body[0]?.error?.message : "") || `Gemini ${r.status}`);
     err.status = r.status;
+    err.upstream = true; // an error from Google, not a missing key
     throw err;
   }
   const c = body.candidates?.[0];
@@ -88,6 +89,7 @@ async function askGeminiOnce(env, model, { system, messages, maxTokens = 8000 })
     const why = body.promptFeedback?.blockReason || c?.finishReason || "empty";
     const err = new Error(`Gemini returned no text (${why})`);
     err.status = 502;
+    err.upstream = true;
     throw err;
   }
   return { text, truncated: c?.finishReason === "MAX_TOKENS" };
