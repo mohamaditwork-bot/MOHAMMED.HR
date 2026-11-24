@@ -51,7 +51,6 @@ const DOC_SHEETS = {
   "جوازات الموظفين": "passport",
   "رخص العمل": "work_permit",
   "صحية الموظفين": "health",
-  "الخروج والعودة": "exit_reentry",
   "إقامات العمالة": "iqama",
   "أجير العمالة": "ajeer",
   "صحية العمالة": "health",

@@ -7,8 +7,9 @@ export const DOC_TYPES = {
   work_permit: { ar: "رخصة العمل", en: "Work permit", thr: "docs" },
   health: { ar: "الشهادة الصحية", en: "Health certificate", thr: "docs" },
   contract: { ar: "العقد", en: "Contract", thr: "contracts" },
-  ajeer: { ar: "أجير", en: "Ajeer permit", thr: "docs" },
-  exit_reentry: { ar: "خروج وعودة", en: "Exit / re-entry", thr: "docs" },
+  ajeer: { ar: "أجير", en: "Ajeer permit", thr: "ajeer" },
+  // Kept only in the employee's file — never in the documents centre, alerts or counts.
+  final_exit: { ar: "خروج نهائي", en: "Final exit visa", thr: "docs", profileOnly: true },
   other: { ar: "وثيقة أخرى", en: "Other document", thr: "docs" },
 };
 
@@ -16,6 +17,7 @@ export const DEFAULT_SETTINGS = {
   iqama: 35,
   contracts: 75,
   docs: 35,
+  ajeer: 45,
   contract_autorenew: true,
   contract_renew_days: 75,
   saudization_target: null,
@@ -50,17 +52,16 @@ export function isSaudi(nationality) {
   return s === "سعودي" || s === "سعودية" || s === "saudi" || s === "saudi arabia";
 }
 
-// Status of one document: expired | near | ok | none (no date)
+export const profileOnly = (docType) => !!DOC_TYPES[docType]?.profileOnly;
+const detailsOf = (doc) => { try { return (typeof doc.details === "string" ? JSON.parse(doc.details || "{}") : doc.details) || {}; } catch { return {}; } };
+
+// Status of one document: expired | near | ok | none (no date) | pending (no date, request in progress)
 export function docStatus(doc, settings = DEFAULT_SETTINGS, today = todayUTC()) {
   let expiry = toISO(doc.expiry_date);
-  if (!expiry) return { status: "none", days: null, expiry: null };
+  if (!expiry) return { status: detailsOf(doc).pending ? "pending" : "none", days: null, expiry: null };
   const days = daysUntil(expiry, today);
-  const thr = Number(settings[(DOC_TYPES[doc.doc_type] || DOC_TYPES.other).thr]) || 30;
-  // An expired exit/re-entry visa only matters while the holder is still abroad.
-  if (days < 0 && doc.doc_type === "exit_reentry") {
-    const det = typeof doc.details === "string" ? JSON.parse(doc.details || "{}") : doc.details || {};
-    if (det.outside !== "نعم") return { status: "used", days, expiry, thr };
-  }
+  const key = (DOC_TYPES[doc.doc_type] || DOC_TYPES.other).thr;
+  const thr = Number(settings?.[key]) || DEFAULT_SETTINGS[key] || 30;
   return { status: days < 0 ? "expired" : days <= thr ? "near" : "ok", days, expiry, thr };
 }
 
@@ -70,14 +71,16 @@ export function buildAlerts(employees, documents, settings = DEFAULT_SETTINGS, t
   const out = [];
   for (const d of documents) {
     const e = byId.get(d.employee_id);
-    if (!e || e.status === "left" || !docApplies(e, d.doc_type)) continue;
+    if (!e || e.status === "left" || !docApplies(e, d.doc_type) || profileOnly(d.doc_type) || d.doc_type === "exit_reentry") continue;
     const s = docStatus(d, settings, today);
-    if (d.doc_type === "exit_reentry" && s.days !== null && s.days < 0) continue; // used / expired visas are not shown
     // A contract with a signed renewal ready is handled (renewed automatically) — no alert.
     if (d.doc_type === "contract" && s.status === "near" && renewalReady(d, (extra.appraisals || []).filter((a) => a.employee_id === d.employee_id), extra.attachments || [])) continue;
     if (s.status === "expired" || s.status === "near") out.push({ ...s, doc: d, employee: e });
   }
-  return out.sort((a, b) => a.days - b.days);
+  // Most urgent first; for contractor labor Ajeer leads when equally urgent.
+  const rank = (a) => (a.days < 0 ? 0 : 1);
+  const ajeer = (a) => (a.employee.kind === "labor" && a.doc.doc_type === "ajeer" ? 0 : 1);
+  return out.sort((a, b) => rank(a) - rank(b) || ajeer(a) - ajeer(b) || a.days - b.days);
 }
 
 // Saudization for a list of staff employees.

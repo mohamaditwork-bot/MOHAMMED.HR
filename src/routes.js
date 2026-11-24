@@ -85,6 +85,21 @@ export async function getSettings(env) {
     s = { ...s, twofa_required: true, settings_rev: 3 };
     await env.HR.put("settings", JSON.stringify(s));
   }
+  // rev 5 (owner request): exit/re-entry visas are not tracked any more — move them all to the recycle bin;
+  // Ajeer (the key document for contractor labor) is flagged earlier: 45 days.
+  if ((s.settings_rev || 0) < 5) {
+    try {
+      const db = await getDb(env);
+      for (const d of await db.query("SELECT id FROM documents WHERE doc_type = 'exit_reentry'")) {
+        await toTrash(db, "documents", d.id, { name: "إلغاء تتبع تأشيرات الخروج والعودة" });
+        await db.query("DELETE FROM documents WHERE id = $1", [d.id]);
+      }
+      // "Third party" employees are the ones transferred to an outside company: label them منقولين.
+      await db.query("UPDATE employees SET company = regexp_replace(company, '^طرف ثالث \\(Third Party\\)', 'منقولين') WHERE company LIKE 'طرف ثالث%'");
+      s = { ...s, ajeer: s.ajeer || 45, settings_rev: 5 };
+      await env.HR.put("settings", JSON.stringify(s));
+    } catch (e) { console.error("visa cleanup failed", e); }
+  }
   return { ...DEFAULT_SETTINGS, ...s };
 }
 
@@ -96,7 +111,7 @@ async function loadAll(env) {
   out.storage = (await db.query("SELECT pg_database_size(current_database()) AS bytes"))[0]?.bytes ?? null;
   out.appraisals = clean(await db.query(
     `SELECT id, employee_id, period, manager_name, manager_title, status, total, grade, decision, decision_note,
-            manager_signed_at, employee_signed_at, token_mgr, token_emp, expires_at, created_by, created_at FROM appraisals ORDER BY created_at DESC`));
+            manager_signed_at, employee_signed_at, hr_name, hr_signed_at, token_mgr, token_emp, expires_at, created_by, created_at FROM appraisals ORDER BY created_at DESC`));
   return out;
 }
 
@@ -240,26 +255,9 @@ function dbError(e) {
 
 // ---------- attachments (stored in Postgres, max 4 MB each) ----------
 
-// A leave spent outside the Kingdom needs an exit/re-entry visa covering the same dates.
-async function syncLeaveVisa(db, leave) {
-  if (!leave.outside_ksa || leave.status === "rejected") return null;
-  const iso = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : v ? String(v).slice(0, 10) : null);
-  const start = iso(leave.start_date), end = iso(leave.end_date);
-  const doc = (await db.query("SELECT * FROM documents WHERE employee_id = $1 AND doc_type = 'exit_reentry'", [leave.employee_id]))[0];
-  const dIssue = iso(doc?.issue_date), dExp = iso(doc?.expiry_date);
-  if (doc && dIssue === start && dExp === end) return null;
-  const covered = doc && dIssue && dExp && dIssue <= start && dExp >= end;
-  if (covered) return null;
-  const old = doc ? `${dIssue || "—"} ← ${dExp || "—"}` : null;
-  await db.query(
-    `INSERT INTO documents (employee_id, doc_type, issue_date, expiry_date, details, notes) VALUES ($1,'exit_reentry',$2,$3,$4,$5)
-     ON CONFLICT (employee_id, doc_type) DO UPDATE SET issue_date = EXCLUDED.issue_date, expiry_date = EXCLUDED.expiry_date,
-       details = COALESCE(documents.details, '{}'::jsonb) || EXCLUDED.details, notes = EXCLUDED.notes, updated_at = now()`,
-    [leave.employee_id, start, end, JSON.stringify({ leave_id: leave.id, outside: "نعم" }), "مطابقة لإجازة خارج المملكة — تأكد من إصدارها في مقيم"]
-  );
-  return old
-    ? `تأشيرة الخروج والعودة الحالية (${old}) ما تغطي الإجازة — تم تعديلها لتطابق الإجازة ${start} ← ${end}. تأكد من تمديدها/إصدارها في مقيم.`
-    : `ما فيه تأشيرة خروج وعودة — تم إنشاؤها بتاريخ الإجازة ${start} ← ${end}. لا تنسى إصدارها في مقيم.`;
+// Exit/re-entry visas are no longer tracked: a leave outside the Kingdom just keeps its flag.
+async function syncLeaveVisa() {
+  return null;
 }
 
 async function importXlsx(req, env) {
@@ -304,7 +302,7 @@ async function settings(req, env) {
   const body = (await readJson(req)) || {};
   const current = await getSettings(env);
   const next = { ...current };
-  for (const k of ["iqama", "contracts", "docs"]) if (k in body) next[k] = Math.max(1, Math.min(365, parseInt(body[k], 10) || current[k]));
+  for (const k of ["iqama", "contracts", "docs", "ajeer"]) if (k in body) next[k] = Math.max(1, Math.min(365, parseInt(body[k], 10) || current[k]));
   if ("saudization_target" in body) {
     const t = body.saudization_target === "" || body.saudization_target === null ? null : Number(body.saudization_target);
     next.saudization_target = t === null || (t >= 0 && t <= 100) ? t : current.saudization_target;
@@ -467,7 +465,7 @@ const ROUTES = {
   "/api/ai": { POST: ai },
   "/api/alerts": { POST: alertsNow },
   "/api/cron": { GET: cron },
-  "/api/appraisals": { GET: appraisals, POST: appraisals, PUT: appraisals, DELETE: appraisals },
+  "/api/appraisals": { GET: appraisals, POST: appraisals, PUT: appraisals, PATCH: appraisals, DELETE: appraisals },
   "/api/sign": { GET: sign, POST: sign },
   "/api/trash": { GET: trash, POST: trash, DELETE: trash },
   "/api/renew": { POST: renewNow },

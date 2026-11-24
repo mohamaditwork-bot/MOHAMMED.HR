@@ -1,8 +1,8 @@
 // HR control platform — single page app (vanilla ES modules, no build step).
 import { t, f, getLang, setLang } from "./i18n.js";
-import { renderDoc, GRADES, DECISIONS, STATUS as APR_STATUS } from "./appraisal-doc.js";
+import { renderDoc, sigPad, GRADES, DECISIONS, STATUS as APR_STATUS } from "./appraisal-doc.js";
 import {
-  DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, leavingReason, renewalReady, docApplies,
+  DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, leavingReason, renewalReady, docApplies, profileOnly,
 } from "./logic.js";
 
 // ================= helpers =================
@@ -54,14 +54,17 @@ function toast(msg, err = false, ms = 2600) {
 
 async function reload() {
   D = await api("/api/all");
-  // Used / expired exit-re-entry visas are history: keep them out of every screen.
-  const today = new Date().toISOString().slice(0, 10);
-  D.documents = D.documents.filter((d) => !(d.doc_type === "exit_reentry" && d.expiry_date && d.expiry_date < today));
+  // Exit/re-entry visas are not kept; final-exit visas live only in the employee's file.
+  D.documents = D.documents.filter((d) => d.doc_type !== "exit_reentry");
+  D.profileDocs = D.documents.filter((d) => profileOnly(d.doc_type));
+  D.documents = D.documents.filter((d) => !profileOnly(d.doc_type));
   EMP = new Map(D.employees.map((e) => [e.id, e]));
   // Saudis: passport / iqama / work permit are not needed — keep them out of every screen.
   D.documents = D.documents.filter((d) => docApplies(EMP.get(d.employee_id), d.doc_type));
 }
 
+// Employees transferred from the hotel's sponsorship to an outside company (handled like contractor labor).
+const isMoved = (e) => /^(منقولين|طرف ثالث)/.test(String(e?.company || ""));
 const empName = (e) => (e ? (L() === "en" && e.name_en ? e.name_en : e.name_ar) : "");
 const docLabel = (k) => (DOC_TYPES[k] ? DOC_TYPES[k][L()] : k);
 const stPill = (s) => `<span class="pill s-${s}">${esc(t("st." + s))}</span>`;
@@ -267,12 +270,6 @@ function exportXlsx(name, cols, rows, getv) {
   XLSX.writeFile(wb, `${name}-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
-// Does the employee's exit/re-entry visa cover this leave?
-function visaCovers(l) {
-  const d = D.documents.find((x) => x.employee_id === l.employee_id && x.doc_type === "exit_reentry");
-  return !!(d && d.issue_date && d.expiry_date && d.issue_date <= l.start_date && d.expiry_date >= l.end_date);
-}
-
 // ================= forms =================
 const OPTS = {
   gender: () => [["ذكر", L() === "en" ? "Male" : "ذكر"], ["أنثى", L() === "en" ? "Female" : "أنثى"]],
@@ -438,7 +435,7 @@ PAGES.dashboard = () => {
       ${kpi(t("k.labor"), labor.length, `${new Set(labor.map((e) => e.company).filter(Boolean)).size} ${t("k.companies")}`, "", "labor")}
       ${kpi(t("k.workforce"), staff.length + labor.length, "")}
       ${kpi(t("k.expired"), cnt("expired"), "", "red", "documents/expired")}
-      ${kpi(t("k.near"), cnt("near"), `${t("set.iqama")} ${st.iqama} • ${t("set.contracts")} ${st.contracts} • ${t("set.docs")} ${st.docs}`, "orange", "documents/near")}
+      ${kpi(t("k.near"), cnt("near"), `${t("set.iqama")} ${st.iqama} • ${t("set.contracts")} ${st.contracts} • ${t("set.ajeer")} ${st.ajeer ?? 45} • ${t("set.docs")} ${st.docs}`, "orange", "documents/near")}
       ${kpi(t("k.nodate"), cnt("none"), "", "", "documents/none")}
       ${kpi(t("k.openjobs"), openJobs.reduce((s, j) => s + (Number(j.openings) || 1), 0), `${activeApps.length} ${t("k.applicants")}`, "", "recruitment")}
       ${kpi(t("k.tasks"), D.tasks.filter((x) => x.status === "open").length, "", "", "tasks")}
@@ -480,7 +477,7 @@ PAGES.dashboard = () => {
       data: [{ name: t("k.saudi"), value: r.saudi }, { name: t("k.nonsaudi"), value: r.non_saudi }] }],
   });
   const types = Object.keys(DOC_TYPES).filter((k) => docSt.some((x) => x.d.doc_type === k));
-  const series = ["expired", "near", "ok", "used", "none"].map((s, i) => ({
+  const series = ["expired", "near", "ok", "pending", "none"].map((s, i) => ({
     name: t("st." + s), type: "bar", stack: "a", barMaxWidth: 26,
     itemStyle: { color: ["#c4372a", "#e8892a", "#1d8048", "#7f8fb5", "#9aa0b4"][i] },
     data: types.map((k) => docSt.filter((x) => x.d.doc_type === k && x.s.status === s).length),
@@ -585,7 +582,7 @@ function peoplePage(kind) {
     ]
     : [
       { k: "emp_no", label: f("emp_no"), num: true },
-      { k: "name", label: f("name"), get: (e) => empName(e), render: (e) => `<b>${esc(empName(e))}</b>` },
+      { k: "name", label: f("name"), get: (e) => empName(e), render: (e) => `<b>${esc(empName(e))}</b>${isMoved(e) ? ` <span class="pill s-info" title="${esc(t("u.moved.t"))}">↪ ${esc(t("u.moved"))}</span>` : ""}` },
       { k: "docs", label: t("pp.docs"), get: (e) => issues(e).map(issueText).join(" • ") || t("pp.allok"), render: docCell, wrap: true },
       { k: "id_no", label: f("id_no"), num: true },
       { k: "company", label: f("company") },
@@ -621,7 +618,7 @@ function openProfile(id, tab) {
   const e = EMP.get(id);
   if (!e) return;
   const st = settings();
-  const docs = D.documents.filter((d) => d.employee_id === id).map((d) => ({ ...d, s: docStatus(d, st) }));
+  const docs = [...(D.profileDocs || []), ...D.documents].filter((d) => d.employee_id === id).map((d) => ({ ...d, s: docStatus(d, st) }));
   const deps = D.dependents.filter((d) => d.employee_id === id);
   const ins = D.insurance.filter((x) => x.employee_id === id);
   const p = e.platform || {};
@@ -646,7 +643,7 @@ function openProfile(id, tab) {
       <div data-pane="docs" class="hidden">
         ${canEdit() ? `<button class="btn sm no-print" id="pAddDoc" style="margin-bottom:10px">+ ${esc(t("doc.add"))}</button>` : ""}
         <div class="tbl compact"><table><thead><tr><th>${esc(t("doc.type"))}</th><th>${esc(t("doc.number"))}</th><th>${esc(t("doc.issue"))}</th><th>${esc(t("doc.expiry"))}</th><th class="num">${esc(t("doc.days"))}</th><th>${esc(t("doc.status"))}</th></tr></thead>
-        <tbody>${docs.map((d) => `<tr class="click" data-doc="${d.id}"><td>${esc(docLabel(d.doc_type))}</td><td class="num">${esc(d.number || "")}</td><td class="num">${esc(fmtDate(d.issue_date))}</td><td class="num">${esc(fmtDate(d.s.expiry || d.expiry_date))}</td><td class="num">${daysCell(d.s.days)}</td><td>${stPill(d.s.status)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
+        <tbody>${docs.map((d) => `<tr class="click" data-doc="${d.id}"><td>${esc(docLabel(d.doc_type))}</td><td class="num">${esc(d.number || "")}</td><td class="num">${esc(fmtDate(d.issue_date))}</td><td class="num">${esc(fmtDate(d.s.expiry || d.expiry_date))}</td><td class="num">${profileOnly(d.doc_type) ? "" : daysCell(d.s.days)}</td><td>${profileOnly(d.doc_type) ? `<span class="pill s-expired">✈️ ${esc(docLabel(d.doc_type))}</span>` : stPill(d.s.status)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
       </div>
       <div data-pane="leaves" class="hidden">
         <div class="kv" style="margin-bottom:12px"><div><span>${esc(t("lv.entitled"))}</span><b>${bal.entitled}</b></div><div><span>${esc(t("lv.used"))}</span><b>${bal.used}</b></div><div><span>${esc(t("lv.remaining"))}</span><b class="${bal.remaining < 0 ? "d-exp" : ""}">${bal.remaining}</b></div></div>
@@ -688,7 +685,7 @@ function openProfile(id, tab) {
   $("#pEdit", m.root)?.addEventListener("click", () => { m.close(); openForm("employees", e, { form: e.kind }); });
   $("#pAddDoc", m.root)?.addEventListener("click", () => { m.close(); openForm("documents", null, { preset: { employee_id: String(id) }, title: t("doc.add") }); });
   $("#pAddDep", m.root)?.addEventListener("click", () => { m.close(); openForm("dependents", null, { preset: { employee_id: String(id) } }); });
-  $$("[data-doc]", m.root).forEach((tr) => tr.addEventListener("click", () => { m.close(); openForm("documents", D.documents.find((d) => d.id === +tr.dataset.doc)); }));
+  $$("[data-doc]", m.root).forEach((tr) => tr.addEventListener("click", () => { m.close(); openForm("documents", [...D.documents, ...(D.profileDocs || [])].find((d) => d.id === +tr.dataset.doc)); }));
   $$("[data-dep]", m.root).forEach((tr) => tr.addEventListener("click", () => { m.close(); openForm("dependents", D.dependents.find((d) => d.id === +tr.dataset.dep)); }));
   $("#pAddLv", m.root)?.addEventListener("click", () => { m.close(); openForm("leaves", null, { preset: { employee_id: String(id), leave_type: "annual", status: "pending" }, title: t("lv.add") }); });
   $("#pAddMv", m.root)?.addEventListener("click", () => { m.close(); openForm("movements", null, { preset: { employee_id: String(id), move_date: new Date().toISOString().slice(0, 10) }, title: t("mv.add") }); });
@@ -732,7 +729,7 @@ PAGES.documents = () => {
   $("#renewNow")?.addEventListener("click", renewContractsNow);
   $$("#docKind [data-k]").forEach((b) => b.addEventListener("click", () => { tableState.docsKind = b.dataset.k; PAGES.documents(); }));
   dataTable($("#tb"), {
-    id: "docs_" + kind, rows: rows.filter((r) => (r.e.kind === "labor") === (kind === "labor")), exportName: `${t("p.documents")} — ${t(kind === "labor" ? "u.labor" : "u.staff")}`,
+    id: "docs_" + kind, rows: rows.filter((r) => (r.e.kind === "labor") === (kind === "labor")).sort((a, b) => (ST_ORDER[a.s.status] ?? 9) - (ST_ORDER[b.s.status] ?? 9) || (kind === "labor" ? (a.doc_type === "ajeer" ? 0 : 1) - (b.doc_type === "ajeer" ? 0 : 1) : 0) || (a.s.days ?? 1e9) - (b.s.days ?? 1e9)), exportName: `${t("p.documents")} — ${t(kind === "labor" ? "u.labor" : "u.staff")}`,
     cols: [
       { k: "owner", label: t("doc.owner"), get: (r) => empName(r.e), render: (r) => `<b>${esc(empName(r.e))}</b><br><small class="muted">${esc(r.e.id_no || "")}</small>` },
       { k: "where", label: kind === "labor" ? f("company") : f("department"), get: (r) => (r.e.kind === "labor" ? r.e.company : r.e.department) },
@@ -741,7 +738,7 @@ PAGES.documents = () => {
       { k: "expiry", label: t("doc.expiry"), num: true, get: (r) => r.s.expiry || r.expiry_date },
       { k: "days", label: t("doc.days"), num: true, get: (r) => r.s.days, render: (r) => (r.s.status === "used" ? "—" : daysCell(r.s.days)) },
       { k: "status", label: t("doc.status"), get: (r) => t("st." + r.s.status), render: (r) => stPill(r.s.status) + (r.doc_type === "contract" && (r.s.status === "near" || r.s.status === "expired") ? (renewalReady(r, (D.appraisals || []).filter((a) => a.employee_id === r.employee_id), D.attachments || []) ? ` <span class="pill s-ok" title="${esc(t("rn.ready.t"))}">📝 ${esc(t("rn.ready"))}</span>` : leavingReason(r) ? "" : ` <span class="pill s-near">⚠️ ${esc(t("rn.noform"))}</span>`) : "") },
-      { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<span class="row-acts"><button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>${r.doc_type === "contract" ? `<button class="btn ${r.details?.no_renew ? "danger" : "ghost"} sm" data-leave="${r.id}" title="${esc(t("rn.leave.t"))}">🚪 ${esc(r.details?.no_renew ? t("rn.leaving") : t("rn.leave"))}</button>` : ""}</span>` : "" },
+      { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<span class="row-acts">${!r.s.expiry ? `<button class="btn ${r.s.status === "pending" ? "" : "ghost"} sm" data-pend="${r.id}" title="${esc(t("pd.t"))}">📨 ${esc(t(r.s.status === "pending" ? "pd.off" : "pd.on"))}</button>` : ""}<button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>${r.doc_type === "contract" ? `<button class="btn ${r.details?.no_renew ? "danger" : "ghost"} sm" data-leave="${r.id}" title="${esc(t("rn.leave.t"))}">🚪 ${esc(r.details?.no_renew ? t("rn.leaving") : t("rn.leave"))}</button>` : ""}</span>` : "" },
     ],
     filters: [{ k: "type", label: t("filter.type"), get: (r) => docLabel(r.doc_type) }, { k: "where", label: kind === "labor" ? f("company") : f("department"), get: (r) => (r.e.kind === "labor" ? r.e.company : r.e.department) }],
     chipGet: (r) => t("st." + r.s.status),
@@ -749,9 +746,21 @@ PAGES.documents = () => {
     afterDraw: (root) => {
       $$("[data-renew]", root).forEach((b) => b.addEventListener("click", () => renewDoc(+b.dataset.renew)));
       $$("[data-leave]", root).forEach((b) => b.addEventListener("click", () => toggleLeaving(+b.dataset.leave)));
+      $$("[data-pend]", root).forEach((b) => b.addEventListener("click", () => togglePending(+b.dataset.pend)));
     },
   });
 };
+
+// Order of document statuses in lists: most urgent first.
+const ST_ORDER = { expired: 0, near: 1, none: 2, pending: 3, ok: 4 };
+
+// "In progress": a request was made for a document that has no date yet (e.g. a health certificate being issued).
+async function togglePending(id) {
+  const d = D.documents.find((x) => x.id === id);
+  const det = { ...(d.details || {}) };
+  if (det.pending) delete det.pending; else det.pending = true;
+  try { await api("/api/rows?table=documents", { method: "PUT", body: { id, details: det } }); toast(t("saved")); await refresh(); } catch (e) { toast(e.message, true); }
+}
 
 async function toggleLeaving(id) {
   const d = D.documents.find((x) => x.id === id);
@@ -1058,8 +1067,21 @@ PAGES.platforms = () => {
     { k: "w", label: L() === "en" ? "Work permit" : "رخصة العمل", get: (e) => p(e, "work_permit"), render: (e) => markCell(p(e, "work_permit")) },
     { k: "r", label: L() === "en" ? "Result" : "النتيجة", get: (e) => p(e, "result"), render: (e) => markCell(p(e, "result")) },
     { k: "n", label: L() === "en" ? "Note" : "الملاحظة", wrap: true, get: (e) => p(e, "note") },
-  ], { rows, noAdd: true, onRow: (e) => openProfile(e.id), table: { chipGet: (e) => p(e, "result") || "—" } });
+    { k: "ok", label: "", noExport: true, get: () => "", render: (e) => (canEdit() && p(e, "result") !== "مطابق" ? `<button class="btn ghost sm" data-platok="${e.id}" title="${esc(t("pl.ok.t"))}">✔ ${esc(t("pl.ok"))}</button>` : "") },
+  ], { rows, noAdd: true, onRow: (e) => openProfile(e.id), table: { chipGet: (e) => p(e, "result") || "—", afterDraw: (root) => $$("[data-platok]", root).forEach((b) => b.addEventListener("click", () => platformOk(+b.dataset.platok))) } });
 };
+
+// Checked on every platform and all is correct: mark everything matched.
+const PLAT_MARKS = ["qiwa_staff", "qiwa_contract", "gosi", "muqeem", "work_permit"];
+async function platformOk(id) {
+  const e = EMP.get(id);
+  if (!confirm(t("pl.ok.q").replace("{n}", empName(e)))) return;
+  const p = { ...(e.platform || {}) };
+  for (const k of PLAT_MARKS) if (p[k] === "✖" || p[k] === "؟") p[k] = "✔";
+  p.result = "مطابق";
+  p.note = `${t("pl.ok.note")} — ${ME?.name || ""} ${new Date().toISOString().slice(0, 10)}`;
+  try { await api("/api/rows?table=employees", { method: "PUT", body: { id, platform: p } }); toast(t("saved")); await refresh(); } catch (err) { toast(err.message, true); }
+}
 
 // ================= ASSISTANT =================
 const chatLog = [];
@@ -1184,6 +1206,7 @@ PAGES.settings = () => {
           <div><label class="fl">${esc(t("set.iqama"))}</label><input class="input" type="number" id="sI" value="${st.iqama}" dir="ltr"></div>
           <div><label class="fl">${esc(t("set.contracts"))}</label><input class="input" type="number" id="sC" value="${st.contracts}" dir="ltr"></div>
           <div><label class="fl">${esc(t("set.docs"))}</label><input class="input" type="number" id="sD" value="${st.docs}" dir="ltr"></div>
+          <div><label class="fl">${esc(t("set.ajeer"))}</label><input class="input" type="number" id="sA" value="${st.ajeer ?? 45}" dir="ltr"></div>
           <div><label class="fl">${esc(t("s.target.set"))}</label><input class="input" type="number" id="sT" value="${st.saudization_target ?? ""}" dir="ltr"></div>
           <div class="full"><label><input type="checkbox" id="sR" ${st.contract_autorenew ? "checked" : ""}> ${esc(t("set.autorenew"))}</label></div>
           ${isAdmin() ? `<div class="full"><label><input type="checkbox" id="s2fa" ${st.twofa_required ? "checked" : ""}> ${esc(t("set.2fa"))}</label></div>` : ""}
@@ -1249,7 +1272,7 @@ PAGES.settings = () => {
   }
   $("#sSave").addEventListener("click", async () => {
     try {
-      await api("/api/settings", { method: "PUT", body: { iqama: $("#sI").value, contracts: $("#sC").value, docs: $("#sD").value, saudization_target: $("#sT").value, contract_autorenew: $("#sR").checked, ...($("#s2fa") ? { twofa_required: $("#s2fa").checked } : {}), contract_renew_days: $("#sRD").value, owner_email: $("#sE").value, hotel_name_ar: $("#sHA").value, hotel_name_en: $("#sHE").value } });
+      await api("/api/settings", { method: "PUT", body: { iqama: $("#sI").value, contracts: $("#sC").value, docs: $("#sD").value, ajeer: $("#sA").value, saudization_target: $("#sT").value, contract_autorenew: $("#sR").checked, ...($("#s2fa") ? { twofa_required: $("#s2fa").checked } : {}), contract_renew_days: $("#sRD").value, owner_email: $("#sE").value, hotel_name_ar: $("#sHA").value, hotel_name_en: $("#sHE").value } });
       toast(t("saved")); await refresh();
     } catch (e) { $("#sm").textContent = e.message; }
   });
@@ -1408,7 +1431,7 @@ PAGES.leaves = () => {
       id: "leaves", rows: D.leaves.filter((l) => EMP.has(l.employee_id)), exportName: t("p.leaves"),
       cols: [
         { k: "emp", label: f("employee_id"), get: (l) => empName(EMP.get(l.employee_id)), render: (l) => `<b>${esc(empName(EMP.get(l.employee_id)))}</b><br><small class="muted">${esc(EMP.get(l.employee_id)?.department || "")}</small>` },
-        { k: "type", label: f("leave_type"), get: (l) => t("lv." + l.leave_type) + (l.outside_ksa ? " ✈️" : ""), render: (l) => esc(t("lv." + l.leave_type)) + (l.outside_ksa ? ` <span class="pill ${visaCovers(l) ? "s-ok" : "s-expired"}" title="${esc(t("lv.visa"))}">✈️ ${esc(visaCovers(l) ? t("lv.visaok") : t("lv.visano"))}</span>` : "") },
+        { k: "type", label: f("leave_type"), get: (l) => t("lv." + l.leave_type) + (l.outside_ksa ? " ✈️" : ""), render: (l) => esc(t("lv." + l.leave_type)) + (l.outside_ksa ? " ✈️" : "") },
         { k: "start_date", label: f("start_date"), num: true },
         { k: "end_date", label: f("end_date"), num: true },
         { k: "days", label: f("days"), num: true, render: (l) => fmtNum(l.days) },
@@ -1471,7 +1494,7 @@ function aprTable(rows, withEmp = true) {
     ${rows.map((a) => {
       const tok = a.status === "manager" ? a.token_mgr : a.status === "employee" ? a.token_emp : null;
       return `<tr>${withEmp ? `<td><b>${esc(empName(EMP.get(a.employee_id)))}</b><br><small class="muted">${esc(EMP.get(a.employee_id)?.job_title || "")}</small></td>` : ""}
-      <td>${esc(a.period || "—")}</td><td>${esc(a.manager_name || "")}</td><td>${aprPill(a.status)}</td>
+      <td>${esc(a.period || "—")}</td><td>${esc(a.manager_name || "")}</td><td>${aprPill(a.status)}${a.status === "completed" ? (a.hr_signed_at ? ` <span class="pill s-ok" title="${esc(a.hr_name || "")}">✍️ ${esc(t("apr.hr.ok"))}</span>` : ` <span class="pill s-near">${esc(t("apr.hr.wait"))}</span>`) : ""}</td>
       <td class="num">${a.total != null ? esc(a.total) + "%" : "—"}<br><small class="muted">${esc(a.grade ? bil(GRADES, a.grade) : "")}</small></td>
       <td><span class="dec-t ${esc(a.decision || "")}">${esc(a.decision ? bil(DECISIONS, a.decision) : "—")}</span></td>
       <td class="no-print"><span class="row-acts">
@@ -1517,9 +1540,24 @@ function shareLink(id, tok, stage) {
 async function viewAppraisal(id) {
   try {
     const v = await api("/api/appraisals?id=" + id);
+    const canHr = v.status === "completed" && !v.hr_signed_at && canEdit();
     const m = modal(`<header><h3>📄 ${esc(t("p.appraisals"))} — ${esc(v.employee.name_ar)}</h3><div style="display:flex;gap:6px"><button class="btn sm" id="aprPr">🖨 ${esc(t("apr.pdf"))}</button><button class="x" data-close>×</button></div></header>
-      <div class="body">${renderDoc(v)}</div>`, "wide");
+      <div class="body">${renderDoc(v)}
+      ${canHr ? `<div class="card no-print hr-sign"><h3>✍️ ${esc(t("apr.hr.title"))}</h3><p class="muted small">${esc(t("apr.hr.desc").replace("{n}", ME?.name || ""))}</p>
+        <div class="sig-area"><canvas id="hrSig"></canvas><span class="sig-ph" id="hrPh">${esc(t("apr.hr.here"))}</span></div>
+        <div style="display:flex;gap:8px;margin-top:8px"><button class="btn ghost sm" id="hrClr">${esc(t("apr.hr.clear"))}</button><button class="btn" id="hrGo">✔ ${esc(t("apr.hr.go"))}</button></div></div>` : ""}</div>`, "wide");
     $("#aprPr", m.root).onclick = () => printModal(m);
+    if (canHr) {
+      const pad = sigPad($("#hrSig", m.root), (has) => { $("#hrPh", m.root).style.display = has ? "none" : ""; });
+      $("#hrClr", m.root).onclick = () => pad.clear();
+      $("#hrGo", m.root).onclick = async () => {
+        if (pad.empty()) return toast(t("apr.hr.need"), true);
+        try {
+          await api("/api/appraisals", { method: "PATCH", body: { id, sig: pad.get() } });
+          toast("✔ " + t("apr.hr.done")); m.close(); await refresh(); viewAppraisal(id);
+        } catch (e) { toast(e.message, true); }
+      };
+    }
   } catch (e) { toast(e.message, true); }
 }
 

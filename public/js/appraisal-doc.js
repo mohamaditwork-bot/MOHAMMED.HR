@@ -48,7 +48,7 @@ export function renderDoc(v) {
     <div class="ad-sigs">
       ${sigBox("توقيع المدير المباشر / Manager", v.manager_sig, v.manager_name, v.manager_signed_at)}
       ${sigBox("توقيع الموظف / Employee", v.employee_sig, v.employee_sig ? e.name_ar : "", v.employee_signed_at)}
-      <div class="ad-sig"><div class="ad-sig-t">اعتماد الموارد البشرية / HR</div><div class="ad-sig-empty"></div><div>&nbsp;</div></div>
+      ${sigBox("اعتماد الموارد البشرية / HR", v.hr_sig, v.hr_name, v.hr_signed_at)}
     </div>
     <p class="small muted" style="margin-top:14px">تم التوقيع إلكترونيًا عبر منصة الموارد البشرية — نوفوتيل المدينة المنورة. Electronically signed.</p>
   </div>`;

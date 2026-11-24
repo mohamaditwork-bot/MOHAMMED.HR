@@ -190,6 +190,9 @@ ALTER TABLE attachments ADD COLUMN IF NOT EXISTS category text;
 ALTER TABLE attachments ADD COLUMN IF NOT EXISTS sha256 text;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_id integer;
 ALTER TABLE audit ADD COLUMN IF NOT EXISTS ip text;
+ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS hr_sig text;
+ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS hr_name text;
+ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS hr_signed_at timestamptz;
 
 CREATE TABLE IF NOT EXISTS trash (
   id serial PRIMARY KEY,

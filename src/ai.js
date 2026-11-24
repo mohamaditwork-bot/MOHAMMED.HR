@@ -61,15 +61,13 @@ export function buildContext({ employees, documents, jobs, applicants, rules, ta
   for (const l of [...onLeave, ...upcoming].slice(0, 30)) lines.push(`- ${byId.get(l.employee_id).name_ar}: ${l.leave_type} ${String(l.start_date).slice(0, 10)} → ${String(l.end_date).slice(0, 10)}${l.outside_ksa ? " (outside KSA)" : ""} [${l.status}]`);
   const outside = active.filter((e) => e.platform?.outside_ksa === "نعم");
   if (outside.length) lines.push(`Outside KSA now (Muqeem): ${outside.map((e) => e.name_ar).join("، ")}`);
-  const visas = documents.filter((d) => d.doc_type === "exit_reentry" && d.expiry_date && String(d.expiry_date).slice(0, 10) >= today && byId.has(d.employee_id));
-  for (const v of visas) lines.push(`- Valid exit/re-entry visa: ${byId.get(v.employee_id).name_ar} until ${String(v.expiry_date).slice(0, 10)}`);
 
   if (appraisals.length) {
     lines.push(`\n## Performance appraisals (${appraisals.length})`);
     for (const a of appraisals.slice(0, 40)) lines.push(`- ${byId.get(a.employee_id)?.name_ar || "?"}: ${a.status}${a.total != null ? `, score ${a.total}% (${a.grade})` : ""}${a.decision ? `, contract decision ${a.decision}` : ""}`);
   }
 
-  const alerts = buildAlerts(active, documents.filter((d) => !(d.doc_type === "exit_reentry" && d.expiry_date && String(d.expiry_date).slice(0, 10) < new Date().toISOString().slice(0, 10))), settings, undefined, { appraisals, attachments: [] });
+  const alerts = buildAlerts(active, documents, settings, undefined, { appraisals, attachments: [] });
   lines.push(`\n## Documents expired or near expiry (${alerts.length})`);
   for (const a of alerts.slice(0, 80)) {
     lines.push(`- ${a.employee.name_ar} (${a.employee.kind === "labor" ? "contractor " + (a.employee.company || "") : a.employee.department || ""}): ${DOC_TYPES[a.doc.doc_type]?.en || a.doc.doc_type} ${a.status === "expired" ? "EXPIRED" : "expires"} ${a.expiry} (${a.days} days)`);

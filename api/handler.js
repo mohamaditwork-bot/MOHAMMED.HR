@@ -16,6 +16,7 @@ export const GET = serve;
 export const POST = serve;
 export const PUT = serve;
 export const DELETE = serve;
+export const PATCH = serve;
 
 // Allow time for AI answers and Excel imports.
 export const config = { maxDuration: 120 };

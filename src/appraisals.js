@@ -71,6 +71,7 @@ function publicView(a) {
     manager_comment: a.manager_comment, employee_comment: a.employee_comment,
     manager_sig: a.manager_sig, manager_signed_at: iso(a.manager_signed_at),
     employee_sig: a.employee_sig, employee_signed_at: iso(a.employee_signed_at),
+    hr_sig: a.hr_sig || null, hr_name: a.hr_name || null, hr_signed_at: iso(a.hr_signed_at),
     criteria: CRITERIA, max_total: MAX_TOTAL,
   };
 }
@@ -144,9 +145,9 @@ export async function appraisalsRoute(req, env, user, audit) {
     }
     const rows = await db.query(
       `SELECT id, employee_id, period, manager_name, manager_title, status, total, grade, decision, decision_note,
-              manager_signed_at, employee_signed_at, token_mgr, token_emp, expires_at, created_by, created_at
+              manager_signed_at, employee_signed_at, hr_name, hr_signed_at, token_mgr, token_emp, expires_at, created_by, created_at
          FROM appraisals ORDER BY created_at DESC`);
-    return json({ rows: rows.map((r) => ({ ...r, manager_signed_at: iso(r.manager_signed_at), employee_signed_at: iso(r.employee_signed_at), expires_at: iso(r.expires_at), created_at: iso(r.created_at) })) });
+    return json({ rows: rows.map((r) => ({ ...r, manager_signed_at: iso(r.manager_signed_at), employee_signed_at: iso(r.employee_signed_at), hr_signed_at: iso(r.hr_signed_at), expires_at: iso(r.expires_at), created_at: iso(r.created_at) })) });
   }
   const body = await req.json().catch(() => null);
   if (!body) return json({ error: "بيانات غير صحيحة" }, 400);
@@ -174,6 +175,19 @@ export async function appraisalsRoute(req, env, user, audit) {
     await db.query(`UPDATE appraisals SET ${col} = $1, expires_at = now() + interval '30 days' WHERE id = $2`, [tok, id]);
     await audit(env, user, "renew_link", "appraisals", id, null);
     return json({ ok: true, [col]: tok });
+  }
+  if (req.method === "PATCH") {
+    // HR approval: any HR user (admin or editor) signs a completed appraisal once.
+    const id = parseInt(body.id, 10);
+    const sig = String(body.sig || "");
+    if (!SIG_RE.test(sig) || sig.length > 300000) return json({ error: "التوقيع مطلوب" }, 400);
+    const r = (await db.query("SELECT status, hr_signed_at FROM appraisals WHERE id = $1", [id]))[0];
+    if (!r) return json({ error: "غير موجود" }, 404);
+    if (r.status !== "completed") return json({ error: "الاعتماد بعد توقيع المدير والموظف" }, 409);
+    if (r.hr_signed_at) return json({ error: "تم الاعتماد مسبقًا" }, 409);
+    await db.query("UPDATE appraisals SET hr_sig = $1, hr_name = $2, hr_signed_at = now() WHERE id = $3 AND hr_signed_at IS NULL", [sig, user.name, id]);
+    await audit(env, user, "hr_sign", "appraisals", id, null);
+    return json({ ok: true });
   }
   if (req.method === "DELETE") {
     const id = parseInt(body.id, 10);

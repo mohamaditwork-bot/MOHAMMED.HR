@@ -550,3 +550,10 @@ tbody tr:hover .row-acts { opacity: 1; }
 .fmeta span { font-size: 11px; color: var(--muted); }
 .facts { display: flex; gap: 6px; padding: 6px 10px 10px; }
 @media print { .fcard img { height: 80px; } .facts { display: none; } }
+
+/* HR approval signature pad (appraisal viewer) */
+.hr-sign { margin-top: 14px; }
+.sig-area { position: relative; height: 170px; border: 2px dashed #9aa0c8; border-radius: 12px; background: #fff; margin-top: 6px; }
+.sig-area canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+.sig-ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9aa0c8; pointer-events: none; font-size: 14px; }
+.pill.s-pending, .doc-issue.s-pending { background: var(--blue-bg, #e6eefc); color: var(--blue, #2457c5); }
