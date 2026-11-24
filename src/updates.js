@@ -613,7 +613,8 @@ H.fixes = async (db, wb) => {
     } else if (act === "مطابقة صحيحة") {
       // Checked on every platform: everything is correct.
       const np = { ...((await db.query("SELECT platform FROM employees WHERE id = $1", [e.id]))[0]?.platform || {}) };
-      for (const k of ["qiwa_staff", "qiwa_contract", "gosi", "muqeem", "work_permit"]) if (np[k] === "✖" || np[k] === "؟") np[k] = "✔";
+      for (const k of ["qiwa_staff", "qiwa_contract", "gosi"]) if (!np[k] || np[k] === "✖" || np[k] === "؟") np[k] = "✔";
+      for (const k of ["muqeem", "work_permit"]) if (np[k] === "✖" || np[k] === "؟") np[k] = "✔";
       np.result = "مطابق";
       np.note = why || "تم التحقق — كل شي صحيح";
       await db.query("UPDATE employees SET platform = $1, updated_at = now() WHERE id = $2", [JSON.stringify(np), e.id]);
@@ -622,7 +623,7 @@ H.fixes = async (db, wb) => {
       // A request was made for a document that has no date yet (e.g. a health certificate being issued).
       const type = FIX_DOCS[field] || field || "health";
       const c = (await db.query("SELECT id, details FROM documents WHERE employee_id = $1 AND doc_type = $2", [e.id, type]))[0];
-      const det = { ...(typeof c?.details === "string" ? JSON.parse(c.details || "{}") : c?.details || {}), pending: true };
+      const det = { ...(typeof c?.details === "string" ? JSON.parse(c.details || "{}") : c?.details || {}), pending: true, pending_note: why || null };
       if (c) await db.query("UPDATE documents SET details = $1, updated_at = now() WHERE id = $2", [JSON.stringify(det), c.id]);
       else await upsertDoc(db, e.id, type, { details: det });
       out.push(`📨 ${nm(e)}: ${field || "الشهادة الصحية"} — قيد الإصدار`);

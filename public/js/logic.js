@@ -60,6 +60,8 @@ export function docStatus(doc, settings = DEFAULT_SETTINGS, today = todayUTC()) 
   let expiry = toISO(doc.expiry_date);
   if (!expiry) return { status: detailsOf(doc).pending ? "pending" : "none", days: null, expiry: null };
   const days = daysUntil(expiry, today);
+  // Expired but already being renewed (e.g. examined, waiting for the new health card): not an alert.
+  if (days < 0 && detailsOf(doc).pending) return { status: "pending", days, expiry };
   const key = (DOC_TYPES[doc.doc_type] || DOC_TYPES.other).thr;
   const thr = Number(settings?.[key]) || DEFAULT_SETTINGS[key] || 30;
   return { status: days < 0 ? "expired" : days <= thr ? "near" : "ok", days, expiry, thr };
