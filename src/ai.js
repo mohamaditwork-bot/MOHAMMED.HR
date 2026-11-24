@@ -138,6 +138,7 @@ export async function askClaude(env, { messages, context, mode = "chat", lang = 
   if (!env.ANTHROPIC_API_KEY) {
     const err = new Error("AI is not configured (ANTHROPIC_API_KEY missing)");
     err.status = 503;
+    err.notConfigured = true;
     throw err;
   }
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
