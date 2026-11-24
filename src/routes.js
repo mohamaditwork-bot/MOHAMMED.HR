@@ -100,6 +100,33 @@ export async function getSettings(env) {
       await env.HR.put("settings", JSON.stringify(s));
     } catch (e) { console.error("visa cleanup failed", e); }
   }
+  // rev 6 (owner request, follow-ups): finished follow-ups from before are removed (kept in the recycle bin),
+  // every insurance follow-up is marked done, and actions done with a login account that no longer exists
+  // are shown under the current administrator's name (that old admin login was the owner's).
+  if ((s.settings_rev || 0) < 6) {
+    try {
+      const db = await getDb(env);
+      for (const r of await db.query("SELECT id FROM tasks WHERE status = 'done'")) {
+        await toTrash(db, "tasks", r.id, { name: "تنظيف المتابعات المنجزة" });
+        await db.query("DELETE FROM tasks WHERE id = $1", [r.id]);
+      }
+      await db.query("UPDATE tasks SET status = 'done' WHERE category = 'insurance' AND status = 'open'");
+      const users = await getUsers(env);
+      const owner = Object.values(users).find((u) => u.role === "admin")?.name;
+      const gone = owner ? (await db.query("SELECT DISTINCT user_id, user_name FROM audit WHERE action IN ('renew_contracts', 'renew_contract', 'login') AND user_name IS NOT NULL"))
+        .filter((r) => r.user_id && /^\d{10}$/.test(r.user_id) && !users[r.user_id] && r.user_name !== owner) : [];
+      for (const { user_id, user_name } of gone) {
+        await db.query("UPDATE movements SET notes = replace(notes, $1, $2) WHERE move_type = 'contract' AND notes LIKE '%' || $1 || '%'", [user_name, owner]);
+        await db.query(
+          `UPDATE documents SET details = jsonb_set(details, '{renewals}',
+             (SELECT jsonb_agg(CASE WHEN x->>'by' = $1 THEN jsonb_set(x, '{by}', to_jsonb($2::text)) ELSE x END) FROM jsonb_array_elements(details->'renewals') x))
+           WHERE doc_type = 'contract' AND jsonb_typeof(details->'renewals') = 'array' AND details::text LIKE '%' || $1 || '%'`, [user_name, owner]);
+        await db.query("UPDATE audit SET user_name = $1 WHERE user_id = $2", [owner, user_id]);
+      }
+      s = { ...s, settings_rev: 6 };
+      await env.HR.put("settings", JSON.stringify(s));
+    } catch (e) { console.error("follow-up cleanup failed", e); }
+  }
   return { ...DEFAULT_SETTINGS, ...s };
 }
 

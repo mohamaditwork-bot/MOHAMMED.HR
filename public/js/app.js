@@ -65,9 +65,11 @@ async function reload() {
 
 // Employees transferred from the hotel's sponsorship to an outside company (handled like contractor labor).
 const isMoved = (e) => /^(منقولين|طرف ثالث)/.test(String(e?.company || ""));
-// Three groups everywhere: permanent staff, contractor labor, and transferred (منقولين — not contractors).
-const groupOf = (e) => (e?.kind !== "labor" ? "staff" : isMoved(e) ? "moved" : "labor");
-const GROUP_LABEL = { staff: "u.staff", labor: "u.labor", moved: "u.movedg" };
+// Transferred employees (منقولين) are listed with the permanent staff, marked "منقول" — never as contractors.
+// They stay out of the hotel's Saudization count (their sponsor is now another company).
+const groupOf = (e) => (e?.kind !== "labor" || isMoved(e) ? "staff" : "labor");
+const GROUP_LABEL = { staff: "u.staff", labor: "u.labor" };
+const movedTag = (e) => (isMoved(e) ? ` <span class="pill s-info" title="${esc(t("u.moved.t"))}">↪ ${esc(t("u.moved"))}</span>` : "");
 const empName = (e) => (e ? (L() === "en" && e.name_en ? e.name_en : e.name_ar) : "");
 const docLabel = (k) => (DOC_TYPES[k] ? DOC_TYPES[k][L()] : k);
 const stPill = (s) => `<span class="pill s-${s}">${esc(t("st." + s))}</span>`;
@@ -101,7 +103,7 @@ const icon = (k) => `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="t
 
 const NAV = [
   ["nav.main", ["dashboard", "reports", "assistant"]],
-  ["nav.people", ["employees", "labor", "moved", "leaves", "movements", "appraisals", "dependents"]],
+  ["nav.people", ["employees", "labor", "leaves", "movements", "appraisals", "dependents"]],
   ["nav.compliance", ["documents", "insurance", "platforms", "tasks"]],
   ["nav.growth", ["saudization", "recruitment"]],
   ["nav.tools", ["import", "trash"]],
@@ -112,9 +114,8 @@ function renderNav() {
   const st = settings();
   const alerts = buildAlerts(D.employees, D.documents, st, undefined, { appraisals: D.appraisals || [], attachments: D.attachments || [] });
   const counts = {
-    employees: D.employees.filter((e) => e.kind === "staff" && e.status !== "left").length,
+    employees: D.employees.filter((e) => groupOf(e) === "staff" && e.status !== "left").length,
     labor: D.employees.filter((e) => groupOf(e) === "labor" && e.status !== "left").length,
-    moved: D.employees.filter((e) => groupOf(e) === "moved" && e.status !== "left").length,
     documents: alerts.length,
     tasks: D.tasks.filter((x) => x.status === "open").length,
     recruitment: D.applicants.filter((a) => !["hired", "rejected"].includes(a.stage)).length,
@@ -414,7 +415,6 @@ PAGES.dashboard = () => {
   const active = D.employees.filter((e) => e.status !== "left");
   const staff = active.filter((e) => e.kind === "staff");
   const labor = active.filter((e) => groupOf(e) === "labor");
-  const moved = active.filter((e) => groupOf(e) === "moved");
   const r = ratio(staff);
   const docSt = D.documents.filter((d) => EMP.get(d.employee_id)?.status !== "left").map((d) => ({ d, s: docStatus(d, st) }));
   const cnt = (s) => docSt.filter((x) => x.s.status === s).length;
@@ -439,8 +439,7 @@ PAGES.dashboard = () => {
       ${kpi(t("k.ratio"), pct(r.pct), st.saudization_target ? `${t("k.target")}: ${st.saudization_target}%` : "", "blue", "saudization")}
       ${kpi(t("k.nonsaudi"), r.non_saudi, "")}
       ${kpi(t("k.labor"), labor.length, `${new Set(labor.map((e) => e.company).filter(Boolean)).size} ${t("k.companies")}`, "", "labor")}
-      ${moved.length ? kpi(t("p.moved"), moved.length, t("u.moved.t"), "", "moved") : ""}
-      ${kpi(t("k.workforce"), staff.length + labor.length + moved.length, "")}
+      ${kpi(t("k.workforce"), active.length, "")}
       ${kpi(t("k.expired"), cnt("expired"), "", "red", "documents/expired")}
       ${kpi(t("k.near"), cnt("near"), `${t("set.iqama")} ${st.iqama} • ${t("set.contracts")} ${st.contracts} • ${t("set.ajeer")} ${st.ajeer ?? 45} • ${t("set.docs")} ${st.docs}`, "orange", "documents/near")}
       ${kpi(t("k.nodate"), cnt("none"), "", "", "documents/none")}
@@ -455,14 +454,13 @@ PAGES.dashboard = () => {
     </div>
     <div class="grid g2">
       <div class="card"><h3>${esc(t("c.dept"))}</h3><div class="chart" id="chDept" style="height:360px"></div></div>
-      ${urgentCard(alerts.filter((a) => a.employee.kind !== "labor"), `${t("urgent")} — ${t("u.staff")}`, "staff")}
+      ${urgentCard(alerts.filter((a) => groupOf(a.employee) === "staff"), `${t("urgent")} — ${t("u.staff")}`, "staff")}
     </div>
     <div class="grid g2">
       ${urgentCard(alerts.filter((a) => groupOf(a.employee) === "labor"), `${t("urgent")} — ${t("u.labor")}`, "labor")}
       <div class="card"><h3>${esc(t("c.company"))}</h3><div class="chart" id="chComp"></div></div>
     </div>
     <div class="grid g2">
-      ${moved.length ? urgentCard(alerts.filter((a) => groupOf(a.employee) === "moved"), `${t("urgent")} — ${t("u.movedg")}`, "moved") : ""}
       <div class="card"><h3>${esc(t("c.funnel"))}</h3><div class="chart" id="chFunnel"></div></div>
     </div>`;
 
@@ -515,7 +513,7 @@ function urgentCard(list, title, kind) {
   const expired = list.filter((a) => a.days < 0).length;
   return `<div class="card"><h3 class="click" data-go="documents/all/${kind}">${esc(title)} <span class="pill s-expired">${expired} ${esc(t("st.expired"))}</span> <span class="pill s-near">${list.length - expired} ${esc(t("st.near"))}</span></h3>
     <div class="tbl compact" style="max-height:360px;overflow:auto"><table><thead><tr><th>${esc(f("name"))}</th><th>${esc(t("doc.type"))}</th><th>${esc(t("doc.expiry"))}</th><th class="num">${esc(t("doc.days"))}</th></tr></thead>
-    <tbody>${list.slice(0, 60).map((a) => `<tr class="click" data-emp="${a.employee.id}"><td>${esc(empName(a.employee))}<br><small class="muted">${esc(kind === "staff" ? a.employee.department || "" : a.employee.company || "")}</small></td><td>${esc(docLabel(a.doc.doc_type))}</td><td class="num">${esc(fmtDate(a.expiry))}</td><td class="num">${daysCell(a.days)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">✓</td></tr>`}</tbody></table></div></div>`;
+    <tbody>${list.slice(0, 60).map((a) => `<tr class="click" data-emp="${a.employee.id}"><td>${esc(empName(a.employee))}${movedTag(a.employee)}<br><small class="muted">${esc(kind === "staff" ? a.employee.department || "" : a.employee.company || "")}</small></td><td>${esc(docLabel(a.doc.doc_type))}</td><td class="num">${esc(fmtDate(a.expiry))}</td><td class="num">${daysCell(a.days)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">✓</td></tr>`}</tbody></table></div></div>`;
 }
 
 // ================= AI helpers =================
@@ -577,7 +575,7 @@ function peoplePage(kind, group = kind) {
   const cols = kind === "staff"
     ? [
       { k: "emp_no", label: f("emp_no"), num: true },
-      { k: "name", label: f("name"), get: (e) => empName(e), render: (e) => `<b>${esc(empName(e))}</b><br><small class="muted">${esc(L() === "en" ? e.name_ar : e.name_en || "")}</small>` },
+      { k: "name", label: f("name"), get: (e) => empName(e), render: (e) => `<b>${esc(empName(e))}</b>${movedTag(e)}<br><small class="muted">${esc(L() === "en" ? e.name_ar : e.name_en || "")}</small>` },
       { k: "docs", label: t("pp.docs"), get: (e) => issues(e).map(issueText).join(" • ") || t("pp.allok"), render: docCell, wrap: true },
       { k: "id_no", label: f("id_no"), num: true },
       { k: "nationality", label: f("nationality"), render: (e) => `${esc(e.nationality || "")}${isSaudi(e.nationality) ? ' <span class="pill s-ok">KSA</span>' : ""}` },
@@ -601,10 +599,10 @@ function peoplePage(kind, group = kind) {
       { k: "status", label: f("status"), get: (e) => t("emp." + e.status), render: (e) => `<span class="pill ${e.status === "left" ? "s-none" : "s-info"}">${esc(t("emp." + e.status))}</span>` },
       rowActions,
     ];
-  const title = t(group === "moved" ? "p.moved" : kind === "staff" ? "p.employees" : "p.labor");
+  const title = t(kind === "staff" ? "p.employees" : "p.labor");
   $("#view").innerHTML = head(title, `${rows.filter((e) => e.status !== "left").length} ${t("emp.active")}`,
     `${canEdit() ? `<button class="btn" id="addEmp">+ ${esc(t("add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div><p class="muted small legend">${t("pp.legend")}</p>`;
-  $("#addEmp")?.addEventListener("click", () => openForm("employees", null, { form: kind, preset: { kind, status: "active", ...(group === "moved" ? { company: "منقولين" } : {}) }, title: `${t("add")} — ${title}` }));
+  $("#addEmp")?.addEventListener("click", () => openForm("employees", null, { form: kind, preset: { kind, status: "active" }, title: `${t("add")} — ${title}` }));
   dataTable($("#tb"), {
     id: "people-" + group, rows, cols, exportName: title,
     filters: kind === "staff"
@@ -621,7 +619,6 @@ function peoplePage(kind, group = kind) {
 }
 PAGES.employees = () => peoplePage("staff");
 PAGES.labor = () => peoplePage("labor");
-PAGES.moved = () => peoplePage("labor", "moved");
 
 function openProfile(id, tab) {
   const e = EMP.get(id);
@@ -729,9 +726,9 @@ PAGES.documents = () => {
   const rows = D.documents
     .filter((d) => EMP.has(d.employee_id))
     .map((d) => ({ ...d, s: docStatus(d, st), e: EMP.get(d.employee_id) }));
-  const kind = ["labor", "moved"].includes(tableState.docsKind) ? tableState.docsKind : "staff";
+  const kind = tableState.docsKind === "labor" ? "labor" : "staff";
   const bad = (k) => rows.filter((r) => groupOf(r.e) === k && (r.s.status === "expired" || r.s.status === "near")).length;
-  const tabs = ["staff", "labor", "moved"].filter((k) => k !== "moved" || rows.some((r) => groupOf(r.e) === "moved"));
+  const tabs = ["staff", "labor"];
   $("#view").innerHTML = head(t("p.documents"), `${t("set.iqama")} ${st.iqama} • ${t("set.contracts")} ${st.contracts} • ${t("set.docs")} ${st.docs} ${t("days")}`,
     `${canEdit() ? `<button class="btn ghost" id="renewNow">🔁 ${esc(t("rn.btn").replace("{n}", st.contract_renew_days ?? 75))}</button><button class="btn" id="addDoc">+ ${esc(t("doc.add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) +
     `<div class="tabs" id="docKind">${tabs.map((k) => `<button class="tab ${k === kind ? "on" : ""}" data-k="${k}">${esc(t(GROUP_LABEL[k]))} <span class="pill ${bad(k) ? "s-expired" : "s-ok"}">${bad(k)}</span></button>`).join("")}</div><div class="card" id="tb"></div>`;
@@ -741,8 +738,8 @@ PAGES.documents = () => {
   dataTable($("#tb"), {
     id: "docs_" + kind, rows: rows.filter((r) => groupOf(r.e) === kind).sort((a, b) => (ST_ORDER[a.s.status] ?? 9) - (ST_ORDER[b.s.status] ?? 9) || (kind !== "staff" ? (a.doc_type === "ajeer" ? 0 : 1) - (b.doc_type === "ajeer" ? 0 : 1) : 0) || (a.s.days ?? 1e9) - (b.s.days ?? 1e9)), exportName: `${t("p.documents")} — ${t(GROUP_LABEL[kind])}`,
     cols: [
-      { k: "owner", label: t("doc.owner"), get: (r) => empName(r.e), render: (r) => `<b>${esc(empName(r.e))}</b><br><small class="muted">${esc(r.e.id_no || "")}</small>` },
-      { k: "where", label: kind !== "staff" ? f("company") : f("department"), get: (r) => (r.e.kind === "labor" ? r.e.company : r.e.department) },
+      { k: "owner", label: t("doc.owner"), get: (r) => empName(r.e), render: (r) => `<b>${esc(empName(r.e))}</b>${movedTag(r.e)}<br><small class="muted">${esc(r.e.id_no || "")}</small>` },
+      { k: "where", label: kind !== "staff" ? f("company") : f("department"), get: (r) => (kind === "staff" ? r.e.department : r.e.company) },
       { k: "type", label: t("doc.type"), get: (r) => docLabel(r.doc_type) },
       { k: "number", label: t("doc.number"), num: true },
       { k: "expiry", label: t("doc.expiry"), num: true, get: (r) => r.s.expiry || r.expiry_date },
@@ -750,7 +747,7 @@ PAGES.documents = () => {
       { k: "status", label: t("doc.status"), get: (r) => t("st." + r.s.status), render: (r) => stPill(r.s.status) + (r.doc_type === "contract" && (r.s.status === "near" || r.s.status === "expired") ? (renewalReady(r, (D.appraisals || []).filter((a) => a.employee_id === r.employee_id), D.attachments || []) ? ` <span class="pill s-ok" title="${esc(t("rn.ready.t"))}">📝 ${esc(t("rn.ready"))}</span>` : leavingReason(r) ? "" : ` <span class="pill s-near">⚠️ ${esc(t("rn.noform"))}</span>`) : "") },
       { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<span class="row-acts">${!r.s.expiry ? `<button class="btn ${r.s.status === "pending" ? "" : "ghost"} sm" data-pend="${r.id}" title="${esc(t("pd.t"))}">📨 ${esc(t(r.s.status === "pending" ? "pd.off" : "pd.on"))}</button>` : ""}<button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>${r.doc_type === "contract" ? `<button class="btn ${r.details?.no_renew ? "danger" : "ghost"} sm" data-leave="${r.id}" title="${esc(t("rn.leave.t"))}">🚪 ${esc(r.details?.no_renew ? t("rn.leaving") : t("rn.leave"))}</button>` : ""}</span>` : "" },
     ],
-    filters: [{ k: "type", label: t("filter.type"), get: (r) => docLabel(r.doc_type) }, { k: "where", label: kind !== "staff" ? f("company") : f("department"), get: (r) => (r.e.kind === "labor" ? r.e.company : r.e.department) }],
+    filters: [{ k: "type", label: t("filter.type"), get: (r) => docLabel(r.doc_type) }, { k: "where", label: kind !== "staff" ? f("company") : f("department"), get: (r) => (kind === "staff" ? r.e.department : r.e.company) }],
     chipGet: (r) => t("st." + r.s.status),
     onRow: (r) => openForm("documents", D.documents.find((d) => d.id === r.id)),
     afterDraw: (root) => {
@@ -1042,7 +1039,61 @@ PAGES.dependents = () => listPage("dependents", "dependents", [
   { k: "st", label: t("doc.status"), get: (x) => t("st." + docStatus({ doc_type: "passport", expiry_date: x.passport_expiry }, settings()).status), render: (x) => stPill(docStatus({ doc_type: "passport", expiry_date: x.passport_expiry }, settings()).status) },
 ]);
 
-PAGES.tasks = () => listPage("tasks", "tasks", [
+PAGES.tasks = () => {
+  if (tableState.tasksTab === "log" && isAdmin()) return activityPage();
+  tasksList();
+  if (isAdmin()) $(".page-head, .head", $("#view"))?.insertAdjacentHTML("afterend", taskTabs("list"));
+  bindTaskTabs();
+};
+const taskTabs = (on) => `<div class="tabs" id="taskTabs">${[["list", t("p.tasks")], ["log", "👤 " + t("act.title")]].map(([k, l]) => `<button class="${k === on ? "on" : ""}" data-tt="${k}">${esc(l)}</button>`).join("")}</div>`;
+const bindTaskTabs = () => $$("#taskTabs [data-tt]").forEach((b) => b.addEventListener("click", () => { tableState.tasksTab = b.dataset.tt; PAGES.tasks(); }));
+
+// Who did what, anywhere on the site — readable feed built from the audit log.
+const ACT = {
+  create: "أضاف", update: "عدّل", delete: "حذف", restore: "استرجع من السلة", purge: "حذف نهائيًا", import: "رفع ملف",
+  login: "دخل الموقع", login_failed: "محاولة دخول خاطئة", logout_all: "خرج من كل الأجهزة", password_change: "غيّر كلمة المرور",
+  hr_sign: "اعتمد التقييم (الموارد البشرية)", manager_sign: "وقّع التقييم كمدير", employee_sign: "وقّع التقييم كموظف",
+  renew_contracts: "جدّد العقود", renew_contract: "جدّد عقد", renew_link: "جدّد رابط التقييم", send_alerts: "أرسل تنبيهات البريد",
+  backup_download: "نزّل نسخة احتياطية", reset2fa: "أعاد ضبط التحقق لمستخدم", twofa_enabled: "فعّل التحقق بخطوتين",
+};
+const ENT = {
+  employees: "موظف", documents: "وثيقة", tasks: "متابعة", leaves: "إجازة", movements: "حركة وظيفية", appraisals: "تقييم",
+  dependents: "تابع", insurance: "تأمين", settings: "الإعدادات", users: "مستخدم", api_keys: "مفاتيح الخدمات", jobs: "وظيفة", applicants: "متقدم",
+};
+function auditTarget(r) {
+  const id = Number(r.entity_id);
+  const emp = (eid) => empName(EMP.get(eid)) || "";
+  switch (r.entity) {
+    case "employees": return emp(id) || r.details?.name_ar || "";
+    case "documents": { const d = [...D.documents, ...(D.profileDocs || [])].find((x) => x.id === id); return d ? `${docLabel(d.doc_type)} — ${emp(d.employee_id)}` : r.details?.doc_type ? docLabel(r.details.doc_type) : ""; }
+    case "tasks": { const x = D.tasks.find((y) => y.id === id); return x ? `${x.title} — ${x.person || ""}` : ""; }
+    case "leaves": { const x = D.leaves.find((y) => y.id === id); return x ? emp(x.employee_id) : ""; }
+    case "appraisals": { const x = (D.appraisals || []).find((y) => y.id === id); return x ? emp(x.employee_id) : ""; }
+    case "movements": { const x = D.movements.find((y) => y.id === id); return x ? emp(x.employee_id) : ""; }
+    default: return r.details?.summary || r.details?.label || "";
+  }
+}
+async function activityPage() {
+  $("#view").innerHTML = `${head(t("p.tasks"), t("act.sub"))}${taskTabs("log")}<div class="card" id="tb"><div class="empty">${esc(t("loading"))}</div></div>`;
+  bindTaskTabs();
+  let rows;
+  try { rows = (await api("/api/audit")).rows; } catch (e) { $("#tb").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  rows = rows.filter((r) => r.action !== "login_password_ok").map((r) => ({
+    ...r, who: r.user_name || "—", what: `${ACT[r.action] || r.action}${ENT[r.entity] ? ` ${ENT[r.entity]}` : r.entity && r.action === "import" ? ` (${r.entity})` : ""}`, target: auditTarget(r),
+  }));
+  dataTable($("#tb"), {
+    id: "activity", rows, exportName: t("act.title"),
+    cols: [
+      { k: "at", label: t("a.at"), num: true, get: (r) => r.at, render: (r) => esc(new Date(r.at).toLocaleString(L() === "en" ? "en-GB" : "ar-SA-u-ca-gregory-nu-latn", { dateStyle: "medium", timeStyle: "short" })) },
+      { k: "who", label: t("a.user"), render: (r) => `<b>${esc(r.who)}</b>` },
+      { k: "what", label: t("a.action") },
+      { k: "target", label: t("act.on"), wrap: true },
+    ],
+    chipGet: (r) => r.who,
+  });
+}
+
+const tasksList = () => listPage("tasks", "tasks", [
   { k: "status", label: f("status"), get: (x) => t("task." + x.status), render: (x) => `<span class="pill ${x.status === "done" ? "s-ok" : "s-near"}">${esc(t("task." + x.status))}</span>` },
   { k: "category", label: f("category"), get: (x) => t("cat." + x.category) },
   { k: "title", label: f("title"), render: (x) => `<b>${esc(x.title)}</b>` },
@@ -1716,7 +1767,7 @@ function setupSearch() {
     if (s.length < 2) return res.classList.add("hidden");
     const out = D.employees.filter((e) => [e.name_ar, e.name_en, e.id_no, e.emp_no].some((v) => v && norm(v).includes(s))).slice(0, 20);
     res.innerHTML = out.length
-      ? out.map((e) => `<button data-id="${e.id}">${esc(empName(e))}<small>${esc(t({ staff: "p.employees", labor: "p.labor", moved: "p.moved" }[groupOf(e)]))} • ${esc(e.id_no || "")} • ${esc(e.kind === "labor" ? e.company || "" : e.department || "")}</small></button>`).join("")
+      ? out.map((e) => `<button data-id="${e.id}">${esc(empName(e))}<small>${esc(t(groupOf(e) === "labor" ? "p.labor" : "p.employees"))} • ${esc(e.id_no || "")} • ${esc(e.kind === "labor" ? e.company || "" : e.department || "")}</small></button>`).join("")
       : `<div class="empty" style="padding:12px">${esc(t("none"))}</div>`;
     res.classList.remove("hidden");
     $$("button", res).forEach((b) => b.addEventListener("click", () => { res.classList.add("hidden"); q.value = ""; openProfile(+b.dataset.id); }));
