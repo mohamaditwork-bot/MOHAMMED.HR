@@ -160,7 +160,11 @@ export function renewalReady(doc, appraisals = [], attachments = []) {
 // Saudi nationals do not need a passport, residence permit (iqama) or work permit on file.
 const SAUDI_NOT_NEEDED = new Set(["passport", "iqama", "work_permit"]);
 export function docApplies(emp, docType) {
-  if (!emp || !SAUDI_NOT_NEEDED.has(docType)) return true;
+  if (!emp) return true;
+  // Per-person exemption (e.g. a Saudi woman's son/daughter or husband needs no work permit).
+  const p = typeof emp.platform === "string" ? (() => { try { return JSON.parse(emp.platform); } catch { return {}; } })() : emp.platform || {};
+  if (Array.isArray(p.exempt) && p.exempt.includes(docType)) return false;
+  if (!SAUDI_NOT_NEEDED.has(docType)) return true;
   const saudi = isSaudi(emp.nationality) || /^1\d{9}$/.test(String(emp.id_no || ""));
   return !saudi;
 }

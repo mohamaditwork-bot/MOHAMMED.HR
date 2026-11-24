@@ -596,6 +596,20 @@ H.fixes = async (db, wb) => {
       else await upsertDoc(db, e.id, "contract", { details: det });
       await addTask(db, "contract", "مغادر — لا يجدد عقده", nm(e), id, why || "");
       out.push(`🚪 ${nm(e)} (${id}) ما يتجدد عقده — ${why || "مغادر"}`);
+    } else if (act === "لا ينطبق") {
+      // This person doesn't need this document (e.g. son/daughter or husband of a Saudi woman: no work permit).
+      const type = FIX_DOCS[field] || field;
+      const np = { ...((await db.query("SELECT platform FROM employees WHERE id = $1", [e.id]))[0]?.platform || {}) };
+      np.exempt = [...new Set([...(Array.isArray(np.exempt) ? np.exempt : []), type])];
+      np.exempt_reason = { ...(np.exempt_reason || {}), [type]: why || "لا ينطبق" };
+      await db.query("UPDATE employees SET platform = $1, updated_at = now() WHERE id = $2", [JSON.stringify(np), e.id]);
+      out.push(`🚫 ${nm(e)}: ${field} — لا ينطبق${why ? ` (${why})` : ""}`);
+    } else if (act === "منقول") {
+      // Moved from the hotel's sponsorship to an outside company.
+      const cur = (await db.query("SELECT company FROM employees WHERE id = $1", [e.id]))[0]?.company || "";
+      const base = String(txt(val) || cur).replace(/^(منقولين|طرف ثالث \(Third Party\))( — )?/, "").trim();
+      await db.query("UPDATE employees SET kind = 'labor', company = $1, updated_at = now() WHERE id = $2", [base ? `منقولين — ${base}` : "منقولين", e.id]);
+      out.push(`↪ ${nm(e)}: منقولة/منقول لشركة خارجية${base ? ` (${base})` : ""}`);
     } else if (act === "مطابقة صحيحة") {
       // Checked on every platform: everything is correct.
       const np = { ...((await db.query("SELECT platform FROM employees WHERE id = $1", [e.id]))[0]?.platform || {}) };
