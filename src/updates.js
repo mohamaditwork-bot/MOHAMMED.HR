@@ -270,37 +270,7 @@ H.dependents = async (db, wb) => {
   return { summary: `${n} تابع تم تحديثهم`, changes: out };
 };
 
-H.exitreentry = async (db, wb) => {
-  const { rows } = table(wb.Sheets[wb.SheetNames[0]], "رقم الإقامة");
-  const map = await people(db);
-  const latest = new Map();
-  for (const r of rows) {
-    const id = idOf(r["رقم الإقامة"]);
-    if (!id) continue;
-    const issue = anyDate(r["تاريخ إصدار التأشيرة بالميلادي"]) || anyDate(r["تاريخ إصدار التأشيرة (هجري)"]);
-    const prev = latest.get(id);
-    if (!prev || (issue || "") > (prev.issue || "")) latest.set(id, { r, issue });
-  }
-  const out = [];
-  const today = new Date().toISOString().slice(0, 10);
-  let n = 0;
-  for (const [id, { r, issue }] of latest) {
-    const e = map.get(id);
-    if (!e) continue;
-    const days = Number(r["مدة التأشيرة"]) || null;
-    const expiry = anyDate(r["تاريخ انتهاء التأشيرة"]) || (issue && days ? new Date(Date.parse(issue) + days * 864e5).toISOString().slice(0, 10) : null);
-    await upsertDoc(db, e.id, "exit_reentry", {
-      number: txt(r["رقم التأشيرة"]), issue, expiry,
-      details: { visa_type: txt(r["نوع التأشيرة"]), duration: days, outside: e.platform?.outside_ksa || null },
-    });
-    n++;
-    if (expiry && expiry < today && e.platform?.outside_ksa === "نعم") {
-      out.push(`🔴 ${nm(e)}: تأشيرة الخروج والعودة انتهت ${expiry} وهو خارج المملكة`);
-      await addTask(db, "renewal", "تأشيرة خروج وعودة منتهية وهو خارج المملكة", nm(e), id, `انتهت ${expiry}`);
-    } else if (expiry && expiry >= today) out.push(`✈️ ${nm(e)}: تأشيرة سارية حتى ${expiry}`);
-  }
-  return { summary: `${n} تأشيرة خروج وعودة (آخر تأشيرة لكل شخص)`, changes: out };
-};
+H.exitreentry = async () => ({ summary: "تأشيرات الخروج والعودة ما تنحفظ في النظام (حسب طلبك) — ما تغيّر شي", changes: [] });
 
 H.renewals = async (db, wb) => {
   const { rows } = table(wb.Sheets[wb.SheetNames[0]], "رقم الإقامة");
@@ -350,11 +320,14 @@ H.finalexit = async (db, wb) => {
   for (const r of rows) {
     const e = map.get(idOf(r["رقم الإقامة"]));
     if (!e || e.status === "left") continue;
-    await toTrash(db, "employees", e.id, { name: `خروج نهائي — تأشيرة ${txt(r["رقم التأشيرة"]) || ""}` });
-    await db.query("DELETE FROM employees WHERE id = $1", [e.id]);
-    out.push(`➖ ${nm(e)}: خروج نهائي — انشال من النظام (محفوظ في سلة المحذوفات)`);
+    const travel = anyDate(r["السفر قبل تاريخ بالميلادي"]);
+    await upsertDoc(db, e.id, "final_exit", {
+      number: txt(r["رقم التأشيرة"]), issue: anyDate(r["تاريخ إصدار التأشيرة بالميلادي"]) || anyDate(r["تاريخ الإصدار"]), expiry: travel,
+      details: { visa_type: "خروج نهائي" },
+    });
+    out.push(`✈️ ${nm(e)}: تأشيرة خروج نهائي${travel ? ` — السفر قبل ${travel}` : ""} (انحفظت في ملفه)`);
   }
-  return { summary: out.length ? `${out.length} انشالوا من النظام (خروج نهائي)` : "كل أصحاب الخروج النهائي غير موجودين بالقوائم (غادروا) ✔", changes: out };
+  return { summary: out.length ? `${out.length} تأشيرة خروج نهائي انحفظت في ملفات أصحابها` : "أصحاب الخروج النهائي غير موجودين بالقوائم (غادروا) ✔", changes: out };
 };
 
 H.transfers = async (db, wb) => {
@@ -523,14 +496,16 @@ H.master = async (db, wb) => {
     }
     nCasual++;
   }
-  // Employees of outside companies (third party): contractor workers, not in the hotel's Saudization
+  // "Transferred" (sheet "Third Parti"): were on the hotel's sponsorship, moved to an outside company.
+  // Handled like contractor labor (not in the hotel's Saudization) but labelled منقولين.
   const third = sheetBy(wb, /^third/i);
   let nThird = 0;
   if (third) for (const g of sheetTable(third, /^employee id$/i)) {
     const f = staffRow(g);
     if (!f.id_no) continue;
     const prev = map.get(f.id_no) && (await db.query("SELECT company FROM employees WHERE id = $1", [map.get(f.id_no).id]))[0]?.company;
-    f.company = prev && !/third party/i.test(prev) ? `طرف ثالث (Third Party) — ${prev}` : "طرف ثالث (Third Party)";
+    const base = String(prev || "").replace(/^(منقولين|طرف ثالث \(Third Party\))( — )?/, "").trim();
+    f.company = base ? `منقولين — ${base}` : "منقولين";
     const e = await upsertPerson(db, map, "labor", f, out, stat);
     if (!e) continue;
     if (e.kind !== "labor") { await db.query("UPDATE employees SET kind = 'labor' WHERE id = $1", [e.id]); e.kind = "labor"; }
@@ -543,7 +518,7 @@ H.master = async (db, wb) => {
     if (id) await removeLeaver(db, map, id, "عامل مؤقت غادر", out, stat, keep);
   }
   return {
-    summary: `${nActive} موظف • ${nThird} طرف ثالث • ${nCasual} عامل • ${stat.added} جديد • ${stat.updated} محدّث • ${stat.removed} غادروا • ${stat.docs} تاريخ وثيقة`,
+    summary: `${nActive} موظف • ${nThird} منقولين • ${nCasual} عامل • ${stat.added} جديد • ${stat.updated} محدّث • ${stat.removed} غادروا • ${stat.docs} تاريخ وثيقة`,
     changes: out,
   };
 };
@@ -608,6 +583,22 @@ H.fixes = async (db, wb) => {
       else await upsertDoc(db, e.id, "contract", { details: det });
       await addTask(db, "contract", "مغادر — لا يجدد عقده", nm(e), id, why || "");
       out.push(`🚪 ${nm(e)} (${id}) ما يتجدد عقده — ${why || "مغادر"}`);
+    } else if (act === "مطابقة صحيحة") {
+      // Checked on every platform: everything is correct.
+      const np = { ...((await db.query("SELECT platform FROM employees WHERE id = $1", [e.id]))[0]?.platform || {}) };
+      for (const k of ["qiwa_staff", "qiwa_contract", "gosi", "muqeem", "work_permit"]) if (np[k] === "✖" || np[k] === "؟") np[k] = "✔";
+      np.result = "مطابق";
+      np.note = why || "تم التحقق — كل شي صحيح";
+      await db.query("UPDATE employees SET platform = $1, updated_at = now() WHERE id = $2", [JSON.stringify(np), e.id]);
+      out.push(`✅ ${nm(e)}: مطابقة المنصات — كل شي صحيح`);
+    } else if (act === "قيد الإصدار") {
+      // A request was made for a document that has no date yet (e.g. a health certificate being issued).
+      const type = FIX_DOCS[field] || field || "health";
+      const c = (await db.query("SELECT id, details FROM documents WHERE employee_id = $1 AND doc_type = $2", [e.id, type]))[0];
+      const det = { ...(typeof c?.details === "string" ? JSON.parse(c.details || "{}") : c?.details || {}), pending: true };
+      if (c) await db.query("UPDATE documents SET details = $1, updated_at = now() WHERE id = $2", [JSON.stringify(det), c.id]);
+      else await upsertDoc(db, e.id, type, { details: det });
+      out.push(`📨 ${nm(e)}: ${field || "الشهادة الصحية"} — قيد الإصدار`);
     } else if (act === "متابعة") {
       await addTask(db, "followup", field || "متابعة", nm(e), id, txt(val) || why || "");
       out.push(`📌 ${nm(e)}: متابعة — ${field || ""} ${txt(val) || why || ""}`.trim());
