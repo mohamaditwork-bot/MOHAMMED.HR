@@ -7,10 +7,10 @@ import {
 import { getDb } from "./db.js";
 import { TABLES, coerce } from "./schema.js";
 import { importWorkbook } from "./importer.js";
-import { detectWorkbook, applyUpdateFile } from "./updates.js";
+import { detectWorkbook, applyUpdateFile, natAr, addLeftIds } from "./updates.js";
 import { signRoute, appraisalsRoute } from "./appraisals.js";
 import { toTrash, trashRoute } from "./trash.js";
-import { renewContracts } from "./renewals.js";
+import { renewContracts, generalManager } from "./renewals.js";
 import { withSecrets, saveSecrets } from "./secrets.js";
 import { loginRoutes, rateLimited } from "./login.js";
 import { verifyTotp } from "./totp.js";
@@ -126,6 +126,53 @@ export async function getSettings(env) {
       s = { ...s, settings_rev: 6 };
       await env.HR.put("settings", JSON.stringify(s));
     } catch (e) { console.error("follow-up cleanup failed", e); }
+  }
+  // rev 7 (owner request, before publishing): fresh start.
+  //  - people removed by hand stay out even after the recycle bin is emptied
+  //  - insurance follow-ups removed completely
+  //  - contract renewals shown in the general manager's name (looked up by job title)
+  //  - safe clean-up of nationalities, mobiles and IBANs
+  //  - recycle bin emptied and the activity log cleared (last)
+  if ((s.settings_rev || 0) < 7) {
+    try {
+      const db = await getDb(env);
+      const left = await db.query("SELECT DISTINCT data->'row'->>'id_no' AS id FROM trash WHERE entity = 'employees' AND deleted_by = 'تصحيحات'");
+      await addLeftIds(db, left.map((r) => r.id));
+      await db.query("DELETE FROM tasks WHERE category = 'insurance'");
+
+      const gm = await generalManager(db);
+      if (gm?.name_ar) {
+        const users = await getUsers(env);
+        const admins = Object.values(users).filter((u) => u.role === "admin").map((u) => u.name);
+        const gone = (await db.query("SELECT DISTINCT user_id, user_name FROM audit WHERE user_name IS NOT NULL"))
+          .filter((r) => r.user_id && /^\d{10}$/.test(r.user_id) && !users[r.user_id]).map((r) => r.user_name);
+        for (const name of new Set([...admins, ...gone].filter((n) => n && n !== gm.name_ar))) {
+          await db.query("UPDATE movements SET notes = replace(notes, $1, $2) WHERE move_type = 'contract' AND notes LIKE 'تجديد عقد%' AND notes LIKE '%' || $1 || '%'", [name, gm.name_ar]);
+          await db.query(
+            `UPDATE documents SET details = jsonb_set(details, '{renewals}',
+               (SELECT jsonb_agg(CASE WHEN x->>'by' = $1 THEN jsonb_set(x, '{by}', to_jsonb($2::text)) ELSE x END) FROM jsonb_array_elements(details->'renewals') x))
+             WHERE doc_type = 'contract' AND jsonb_typeof(details->'renewals') = 'array' AND details::text LIKE '%' || $1 || '%'`, [name, gm.name_ar]);
+        }
+      }
+
+      for (const e of await db.query("SELECT id, nationality, mobile, iban, name_ar, name_en FROM employees")) {
+        const nat = e.nationality ? natAr(e.nationality) : null;
+        let mob = e.mobile ? String(e.mobile).replace(/\D/g, "").replace(/^(00966|966)/, "") : null;
+        if (mob && mob.length >= 9 && !mob.startsWith("0")) mob = "0" + mob;
+        if (mob && (mob.length < 9 || /^0+$/.test(mob))) mob = e.mobile;
+        const iban = e.iban ? String(e.iban).replace(/\s+/g, "").toUpperCase() : null;
+        const na = e.name_ar ? String(e.name_ar).replace(/\s+/g, " ").trim() : e.name_ar;
+        const ne = e.name_en ? String(e.name_en).replace(/\s+/g, " ").trim() : e.name_en;
+        if (nat !== e.nationality || mob !== e.mobile || iban !== e.iban || na !== e.name_ar || ne !== e.name_en) {
+          await db.query("UPDATE employees SET nationality = $1, mobile = $2, iban = $3, name_ar = $4, name_en = $5 WHERE id = $6", [nat, mob, iban, na, ne, e.id]);
+        }
+      }
+
+      await db.query("DELETE FROM trash");
+      await db.query("DELETE FROM audit");
+      s = { ...s, settings_rev: 7 };
+      await env.HR.put("settings", JSON.stringify(s));
+    } catch (e) { console.error("publish clean-up failed", e); }
   }
   return { ...DEFAULT_SETTINGS, ...s };
 }
@@ -391,6 +438,7 @@ async function ai(req, env) {
   } catch (e) {
     console.error("AI error", e?.status, e?.message);
     if (e.notConfigured) return json({ error: "الذكاء الاصطناعي غير مفعّل — المدير يضيف مفتاح Google Gemini من الإعدادات ← مفاتيح الخدمات" }, 503);
+    if (e.empty) return json({ error: e.message }, 502);
     if (e.status >= 500) return json({ error: `خدمة الذكاء الاصطناعي (${e.upstream ? "Google Gemini" : "Claude"}) مشغولة الحين — حاول بعد دقيقة` }, 503);
     if (e.status === 429) return json({ error: e.free ? "انتهى الحد المسموح من Gemini لهذي الدقيقة أو اليوم — حاول بعد شوي أو بكرة" : "ضغط على خدمة الذكاء، حاول بعد قليل" }, 429);
     // Show the provider's own reason (never contains the key) so a bad/restricted key is easy to spot.

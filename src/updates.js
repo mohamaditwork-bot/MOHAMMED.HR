@@ -373,7 +373,7 @@ const sheetBy = (wb, re) => wb.Sheets[wb.SheetNames.find((n) => re.test(n.trim()
 const EMPTY = /^(n\/?a|na|none|nil|null|-+|—|0+|pending|done|tbd|\?)$/i;
 // English nationality codes in the Master file → the Arabic used across the site.
 const NAT_AR = { bangladeshi: "بنغلاديشي", bangladesh: "بنغلاديشي", egyptian: "مصري", egyption: "مصري", egypt: "مصري", indian: "هندي", india: "هندي", pakistani: "باكستاني", pakistan: "باكستاني", saudi: "سعودي", "saudi arabian": "سعودي", sudanese: "سوداني", yemeni: "يمني", syrian: "سوري", jordanian: "أردني", filipino: "فلبيني", philippine: "فلبيني", nepali: "نيبالي", nepalese: "نيبالي", "sri lankan": "سريلانكي", indonesian: "إندونيسي", moroccan: "مغربي", tunisian: "تونسي", lebanese: "لبناني", palestinian: "فلسطيني", ethiopian: "إثيوبي", kenyan: "كيني", afghan: "أفغاني", nigerian: "نيجيري", ugandan: "أوغندي", myanmar: "ميانماري", burmese: "ميانماري", chadian: "تشادي", eritrean: "إريتري", somali: "صومالي", turkish: "تركي", iraqi: "عراقي", algerian: "جزائري", libyan: "ليبي" };
-const natAr = (v) => { const t = txt(v); return t ? NAT_AR[t.toLowerCase().replace(/\s+/g, " ")] || t : null; };
+export const natAr = (v) => { const t = txt(v); return t ? NAT_AR[t.toLowerCase().replace(/\s+/g, " ")] || t : null; };
 // Fields the Master file is the source of truth for; everything else is only filled when empty.
 const MASTER_OWNS = new Set(["emp_no", "job_title", "grade", "leave_days", "basic_salary", "housing", "transport", "total_salary", "company", "work_hours", "iban", "bank", "qiwa_job", "iqama_job"]);
 const sameVal = (a, b) => {
@@ -382,7 +382,18 @@ const sameVal = (a, b) => {
 };
 
 // Someone removed from the system with a manual correction (left / resigned).
+// The list survives emptying the recycle bin (kv "left_ids").
+export async function leftIds(db) {
+  const r = await db.query("SELECT value FROM kv WHERE key = 'left_ids'");
+  try { return new Set(JSON.parse(r[0]?.value || "[]")); } catch { return new Set(); }
+}
+export async function addLeftIds(db, ids) {
+  const all = await leftIds(db);
+  for (const id of ids) if (id) all.add(String(id));
+  await db.query("INSERT INTO kv(key, value) VALUES ('left_ids', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [JSON.stringify([...all])]);
+}
 async function removedByHand(db, id) {
+  if ((await leftIds(db)).has(String(id))) return true;
   const r = await db.query("SELECT 1 FROM trash WHERE entity = 'employees' AND deleted_by = 'تصحيحات' AND data->'row'->>'id_no' = $1 LIMIT 1", [id]);
   return r.length > 0;
 }
@@ -548,6 +559,7 @@ H.fixes = async (db, wb) => {
     if (!act) continue;
     if (!e && act === "حذف" && /^[12]\d{9}$/.test(id)) {
       // Not in the system (yet): remember the removal so later files never add them back.
+      await addLeftIds(db, [id]);
       if (!(await removedByHand(db, id))) await db.query("INSERT INTO trash (entity, entity_id, label, data, extra_count, deleted_by) VALUES ('employees', $1, $2, $3, 0, 'تصحيحات')", [id, txt(r["الاسم"]) || id, JSON.stringify({ row: { id_no: id, name_ar: txt(r["الاسم"]) }, related: {}, marker: true })]);
       out.push(`➖ ${txt(r["الاسم"]) || id} (${id}) مسجل كمغادر — ما راح ينضاف من أي ملف — ${why || "غادر"}`);
       done++;
@@ -555,6 +567,7 @@ H.fixes = async (db, wb) => {
     }
     if (!e) { out.push(`❔ ${txt(r["الاسم"]) || id} (${id}) غير موجود في النظام — «${act}» ما تنفّذ (ارفع ملف التصحيحات آخر شي)`); continue; }
     if (act === "حذف") {
+      await addLeftIds(db, [id]);
       await toTrash(db, "employees", e.id, { name: "تصحيحات" });
       await db.query("DELETE FROM employees WHERE id = $1", [e.id]);
       map.delete(id);

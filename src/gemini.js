@@ -65,31 +65,45 @@ export async function askGemini(env, args) {
   throw last;
 }
 
+// Keep "thinking" short so the answer itself fits in the output budget (Flash models think by default,
+// and on long prompts the thinking can use the whole budget and leave no text).
+function thinkingFor(model) {
+  const v = parseFloat((model.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1]);
+  if (v >= 3) return { thinkingLevel: "low" };
+  if (v >= 2.5) return { thinkingBudget: 1024 };
+  return null;
+}
+
 // Native Gemini API with the x-goog-api-key header — the same call that validated the key when it was saved.
-async function askGeminiOnce(env, model, { system, messages, maxTokens = 8000 }) {
+async function askGeminiOnce(env, model, { system, messages, maxTokens = 32768 }, withThinking = true) {
+  const thinking = withThinking ? thinkingFor(model) : null;
   const r = await fetch(`${BASE}/models/${model}:generateContent`, {
     method: "POST",
     headers: { "x-goog-api-key": env.GEMINI_API_KEY, "content-type": "application/json" },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents: messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: String(m.content || "") }] })),
-      generationConfig: { maxOutputTokens: maxTokens },
+      generationConfig: { maxOutputTokens: maxTokens, ...(thinking ? { thinkingConfig: thinking } : {}) },
     }),
   });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) {
-    const err = new Error(body?.error?.message || (Array.isArray(body) ? body[0]?.error?.message : "") || `Gemini ${r.status}`);
+    const msg = body?.error?.message || (Array.isArray(body) ? body[0]?.error?.message : "") || `Gemini ${r.status}`;
+    // Some models don't accept the thinking setting — ask the same model again without it.
+    if (thinking && r.status === 400 && /think/i.test(msg)) return askGeminiOnce(env, model, { system, messages, maxTokens }, false);
+    const err = new Error(msg);
     err.status = r.status;
     err.upstream = true; // an error from Google, not a missing key
     throw err;
   }
   const c = body.candidates?.[0];
-  const text = (c?.content?.parts || []).map((p) => p.text || "").join("").trim();
+  const text = (c?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || "").join("").trim();
   if (!text) {
     const why = body.promptFeedback?.blockReason || c?.finishReason || "empty";
-    const err = new Error(`Gemini returned no text (${why})`);
+    const err = new Error(why === "MAX_TOKENS" ? "الرد طويل وما اكتمل — جرّب مرة ثانية" : `Gemini returned no text (${why})`);
     err.status = 502;
     err.upstream = true;
+    err.empty = true;
     throw err;
   }
   return { text, truncated: c?.finishReason === "MAX_TOKENS" };

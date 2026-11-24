@@ -374,7 +374,6 @@ tbody tr:hover .row-acts { opacity: 1; }
   .welcome, .fab { display: none !important; }
   .rtable th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .rtable tr { break-inside: avoid; }
-  @page { @bottom-center { content: counter(page) " / " counter(pages); font-size: 10px; color: #666; } }
 }
 @media (max-width: 980px) {
   .welcome { padding: 16px; }
@@ -557,3 +556,33 @@ tbody tr:hover .row-acts { opacity: 1; }
 .sig-area canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
 .sig-ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9aa0c8; pointer-events: none; font-size: 14px; }
 .pill.s-pending, .doc-issue.s-pending { background: var(--blue-bg, #e6eefc); color: var(--blue, #2457c5); }
+
+/* ===== Official print document (every print goes through #printDoc) ===== */
+#printDoc { display: none; }
+.rsum .rsum-wide { grid-column: span 3; }
+.rsum small { display: block; font-size: 10.5px; margin-top: 2px; }
+.kvt th { width: 17%; text-align: start; background: #f4f5f9; }
+.kvt td { width: 33%; }
+.psec { break-inside: auto; }
+.chart-img { display: block; width: 100%; max-height: 280px; object-fit: contain; margin: 4px auto 10px; }
+@media print {
+  body.printing-doc { background: #fff !important; }
+  body.printing-doc > :not(#printDoc) { display: none !important; }
+  body.printing-doc #printDoc { display: block !important; }
+  .pdoc { padding: 0 !important; margin: 0; box-shadow: none !important; border-radius: 0; max-width: none; font-size: 10pt; color: #111; background: #fff; }
+  .pdoc .report-head { margin-bottom: 12px; }
+  .pdoc .report-head img { height: 44px; }
+  .pdoc .rsum { gap: 6px; margin-bottom: 10px; }
+  .pdoc .rsum div { padding: 6px 9px; }
+  .pdoc .rsum b { font-size: 15px; }
+  .pdoc .rsec { break-after: avoid; margin: 14px 0 6px; font-size: 13px; }
+  .pdoc .rtable { font-size: 8.8pt; }
+  .pdoc .rtable th, .pdoc .rtable td { padding: 4px 6px; }
+  .pdoc .rtable thead { display: table-header-group; }
+  .pdoc .rtable tr { break-inside: avoid; }
+  .pdoc .rtable th, .pdoc .pill, .pdoc .doc-issue, .pdoc .kvt th, .pdoc .rsum div { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pdoc .pill, .pdoc .doc-issue { padding: 1px 6px; font-size: 8pt; border: 0; border-radius: 6px; }
+  .pdoc .muted { color: #555 !important; }
+  .pdoc .report-sign { break-inside: avoid; margin-top: 22px; }
+  .pdoc .ad-sigs { break-inside: avoid; }
+}

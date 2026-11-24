@@ -167,6 +167,7 @@ function markActive() {
 }
 
 function route() {
+  lastTable = null;
   charts.forEach((c) => c.dispose());
   charts = [];
   const k = currentPage();
@@ -250,6 +251,7 @@ function dataTable(root, cfg) {
       cfg.onRow(cfg.rows.find((r) => String(r.id) === tr.dataset.id));
     }));
     if (cfg.afterDraw) cfg.afterDraw(root);
+    if (!root.closest(".modal")) lastTable = { cfg, rows, root };
   };
   $(".q", root).addEventListener("input", (e) => { st.q = e.target.value; draw(); });
   $$("select[data-f]", root).forEach((s) => s.addEventListener("change", () => { st.f[s.dataset.f] = s.value; draw(); }));
@@ -403,10 +405,169 @@ function modal(html, cls = "") {
   return { root: wrap, close };
 }
 
+// ================= PRINTING =================
+// Every print is one official document: logo, hotel and department, title, filters in effect, date,
+// prepared by, clean tables (no buttons or inputs), a signature line, and page numbers on every page.
+let lastTable = null; // the table on screen: { cfg, rows, root } (set by dataTable)
+const hotelName = () => settings()[L() === "en" ? "hotel_name_en" : "hotel_name_ar"] || "Novotel";
+
+// Screen HTML → print HTML: buttons become plain labels, inputs/actions/charts removed.
+function cleanHtml(html) {
+  const box = document.createElement("div");
+  box.innerHTML = html;
+  box.querySelectorAll(".row-acts, .no-print, input, select, textarea, .chart, .b-acts, .x, .ai-actions").forEach((n) => n.remove());
+  box.querySelectorAll("button").forEach((b) => {
+    const s = document.createElement("span");
+    s.className = b.className.split(/\s+/).filter((c) => !["btn", "ghost", "sm", "link", "click"].includes(c)).join(" ");
+    s.innerHTML = b.innerHTML;
+    b.replaceWith(s);
+  });
+  box.querySelectorAll("a").forEach((a) => a.replaceWith(...a.childNodes));
+  box.querySelectorAll("table").forEach((tb) => { tb.className = "rtable"; tb.removeAttribute("style"); });
+  box.querySelectorAll("[style]").forEach((n) => { if (/max-height|overflow/.test(n.getAttribute("style"))) n.removeAttribute("style"); });
+  return box.innerHTML;
+}
+
+function printDoc({ title, subtitle = "", body, landscape = false, sign = true, raw = false }) {
+  const today = fmtDate(new Date().toISOString());
+  const head = `<div class="report-head"><img src="/logo-navy.png" alt="Novotel"><div><b>${esc(title)}</b><span>${esc(hotelName())} — ${esc(t("hr"))}${subtitle ? ` • ${esc(subtitle)}` : ""}</span></div>
+    <div class="rmeta">${esc(t("rep.date"))}: <span class="num">${esc(today)}</span><br>${esc(t("rep.prepared"))}: ${esc(ME?.name || "")}</div></div>`;
+  const signs = sign ? `<div class="report-sign"><div>${esc(t("rep.prepared"))}: ${esc(ME?.name || "")}</div><div>${esc(t("rep.sign"))}: ____________________</div><div>${esc(t("rep.date"))}: <span class="num">${esc(today)}</span></div></div>` : "";
+  $("#printDoc").innerHTML = `<div class="report-doc pdoc">${raw ? "" : head}${body}${signs}</div>`;
+  let ps = $("#printPage");
+  if (!ps) { ps = document.createElement("style"); ps.id = "printPage"; document.head.appendChild(ps); }
+  const footer = `${t("print.page")} " counter(page) " / " counter(pages) "   •   ${hotelName()} — ${t("hr")}   •   ${t("print.conf")}`.replace(/\\/g, "");
+  ps.textContent = `@media print { @page { size: A4 ${landscape ? "landscape" : "portrait"}; margin: 12mm 10mm 15mm; @bottom-center { content: "${footer}"; font-size: 8pt; color: #666; } } }`;
+  document.body.classList.add("printing-doc");
+}
+function endPrint() {
+  document.body.classList.remove("printing-doc");
+  $("#printDoc").innerHTML = "";
+}
+window.addEventListener("afterprint", endPrint);
+// Ctrl+P / the browser's print menu also get the official document.
+window.addEventListener("beforeprint", () => { if (!document.body.classList.contains("printing-doc")) buildPagePrint(); });
+function printNow(opts) { printDoc(opts); setTimeout(() => window.print(), 60); }
+
+// A table page: exactly the rows on screen (search, chips and filters applied), data columns only.
+function tablePrint(title) {
+  const { cfg, rows } = lastTable;
+  const st = tableState[cfg.id] || {};
+  const cols = cfg.cols.filter((c) => !c.noExport && c.label);
+  const getv = (c, r) => (c.get ? c.get(r) : r[c.k]);
+  const cell = (c, r) => (c.render ? cleanHtml(c.render(r)) : esc(fmtDate(getv(c, r)) ?? ""));
+  const filters = [st.q && `${t("search")}: ${st.q}`, st.chip, ...Object.values(st.f || {}).filter(Boolean)].filter(Boolean);
+  const tab = $("#view .tabs button.on, #view .tabs .tab.on")?.textContent.replace(/\s+\d+\s*$/, "").trim();
+  return {
+    title, subtitle: tab || "", landscape: cols.length > 6,
+    body: `<div class="rsum"><div><span>${esc(t("rep.count"))}</span><b class="num">${rows.length}</b></div>${filters.length ? `<div class="rsum-wide"><span>${esc(t("rep.filters"))}</span><b class="small">${esc(filters.join(" • "))}</b></div>` : ""}</div>
+      <table class="rtable"><thead><tr><th class="num">#</th>${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r, i) => `<tr><td class="num">${i + 1}</td>${cols.map((c) => `<td class="${c.num ? "num" : ""}">${cell(c, r)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length + 1}" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table>`,
+  };
+}
+
+// Any other page (dashboard, Saudization…): KPIs as a summary, each card as a titled section,
+// tables cleaned, charts as images.
+function viewPrint(title) {
+  const v = $("#view");
+  const parts = [];
+  const kpis = $$(".kpis .kpi", v);
+  if (kpis.length) parts.push(`<div class="rsum">${kpis.map((k) => `<div><span>${esc($(".l", k)?.textContent || "")}</span><b class="num">${esc($(".v", k)?.textContent || "")}</b>${$(".h", k)?.textContent ? `<small class="muted">${esc($(".h", k).textContent)}</small>` : ""}</div>`).join("")}</div>`);
+  for (const card of $$(".card", v)) {
+    if (card.classList.contains("kpi") || card.closest(".kpis") || card.classList.contains("no-print")) continue;
+    const h = $("h3", card)?.textContent.trim();
+    const chartEl = $(".chart", card);
+    const inst = chartEl && window.echarts ? echarts.getInstanceByDom(chartEl) : null;
+    let inner = "";
+    if (inst) inner = `<img class="chart-img" src="${chartImage(inst, chartEl)}" alt="">`;
+    else {
+      const c = card.cloneNode(true);
+      $("h3", c)?.remove();
+      inner = cleanHtml(c.innerHTML);
+    }
+    if (!inner.replace(/<[^>]+>/g, "").trim() && !inst) continue;
+    parts.push(`<section class="psec">${h ? `<h3 class="rsec">${esc(h)}</h3>` : ""}${inner}</section>`);
+  }
+  if (!parts.length) { const c = v.cloneNode(true); $(".page-head", c)?.remove(); parts.push(cleanHtml(c.innerHTML)); }
+  return { title, body: parts.join("") };
+}
+
+// A chart drawn again off-screen on a white canvas (light colours), as a PNG for the printout.
+function chartImage(inst, el) {
+  const box = document.createElement("div");
+  box.style.cssText = `position:fixed;left:-10000px;top:0;width:${el.clientWidth || 600}px;height:${el.clientHeight || 300}px`;
+  document.body.appendChild(box);
+  const c = echarts.init(box, null, { renderer: "canvas" });
+  const opt = inst.getOption();
+  c.setOption({ ...opt, animation: false, backgroundColor: "#fff" });
+  const url = c.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: "#fff" });
+  c.dispose(); box.remove();
+  return url;
+}
+
+// The page on screen → print document.
+function buildPagePrint() {
+  const k = currentPage();
+  const title = $("#view .page-head h1")?.textContent.trim() || t("p." + k);
+  const rep = $("#view .report-doc");
+  if (rep) {
+    const c = rep.cloneNode(true);
+    $(".report-head", c)?.remove(); $(".report-sign", c)?.remove();
+    const cols = Math.max(0, ...$$("table", c).map((tb) => tb.rows[0]?.cells.length || 0));
+    return printDoc({ title, body: cleanHtml(c.innerHTML), landscape: cols > 7 });
+  }
+  if (lastTable && $("#view").contains(lastTable.root)) return printDoc(tablePrint(title));
+  return printDoc(viewPrint(title));
+}
+
+// The employee file as an official record (every section, not just the open tab).
+function printProfile(id) {
+  const e = EMP.get(id);
+  if (!e) return;
+  const st = settings();
+  const rows = (pairs) => {
+    const list = pairs.filter(([, v]) => v !== null && v !== undefined && v !== "");
+    let h = "";
+    for (let i = 0; i < list.length; i += 2) h += `<tr>${list.slice(i, i + 2).map(([l, v]) => `<th>${esc(l)}</th><td>${esc(v)}</td>`).join("")}${i + 1 >= list.length ? "<th></th><td></td>" : ""}</tr>`;
+    return `<table class="rtable kvt"><tbody>${h}</tbody></table>`;
+  };
+  const tbl = (heads, list) => `<table class="rtable"><thead><tr>${heads.map((x) => `<th>${esc(x)}</th>`).join("")}</tr></thead><tbody>${list.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${heads.length}" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table>`;
+  const money = (v) => (v === null || v === undefined || v === "" ? "" : fmtNum(v, 2));
+  const info = rows([
+    [f("name") + " (AR)", e.name_ar], [f("name") + " (EN)", e.name_en], [f("emp_no"), e.emp_no], [f("id_no"), e.id_no],
+    [f("nationality"), e.nationality], [f("gender"), e.gender], [f("birth_date"), fmtDate(e.birth_date)], [f("mobile"), e.mobile],
+    [f("email"), e.email], [f("sector"), e.sector], [f("department"), e.department], [f("job_title"), e.job_title],
+    [f("iqama_job"), e.iqama_job], [f("qiwa_job"), e.qiwa_job], [f("company"), e.company], [f("join_date"), fmtDate(e.join_date)],
+    [f("grade"), e.grade], [f("leave_days"), e.leave_days], [f("basic_salary"), money(e.basic_salary)], [f("housing"), isNaN(Number(e.housing)) ? e.housing : money(e.housing)],
+    [f("transport"), isNaN(Number(e.transport)) ? e.transport : money(e.transport)], [f("total_salary"), money(e.total_salary)], [f("bank"), e.bank], [f("iban"), e.iban],
+    [f("status"), t("emp." + e.status)],
+  ]);
+  const docs = [...(D.profileDocs || []), ...D.documents].filter((d) => d.employee_id === id).map((d) => ({ d, s: docStatus(d, st) }));
+  const sections = [
+    [t("details"), info],
+    [t("p.documents"), tbl([t("doc.type"), t("doc.number"), t("doc.issue"), t("doc.expiry"), t("doc.days"), t("doc.status")],
+      docs.map(({ d, s }) => [esc(docLabel(d.doc_type)), `<span class="num">${esc(d.number || "")}</span>`, `<span class="num">${esc(fmtDate(d.issue_date))}</span>`, `<span class="num">${esc(fmtDate(s.expiry || d.expiry_date))}</span>`, `<span class="num">${s.days ?? ""}</span>`, profileOnly(d.doc_type) ? esc(docLabel(d.doc_type)) : stPill(s.status)]))],
+    [t("p.leaves"), tbl([f("leave_type"), f("start_date"), f("end_date"), f("days"), f("status")],
+      D.leaves.filter((l) => l.employee_id === id).map((l) => [esc(t("lv." + l.leave_type)) + (l.outside_ksa ? " ✈️" : ""), esc(fmtDate(l.start_date)), esc(fmtDate(l.end_date)), fmtNum(l.days), esc(t("ls." + l.status))]))],
+    [t("p.movements"), tbl([f("move_date"), f("move_type"), f("from_value"), f("to_value"), f("notes")],
+      D.movements.filter((x) => x.employee_id === id).map((x) => [esc(fmtDate(x.move_date)), esc(t("mv." + x.move_type)), esc(fmtDate(x.from_value) || ""), esc(fmtDate(x.to_value) || ""), esc(x.notes || "")]))],
+    [t("p.appraisals"), tbl([t("apr.period"), t("apr.score"), t("apr.decision"), f("status")],
+      (D.appraisals || []).filter((a) => a.employee_id === id).map((a) => [esc(a.period || ""), a.total != null ? `${esc(a.total)}%` : "—", esc(DECISIONS[a.decision]?.[L() === "en" ? 1 : 0] || "—"), esc(APR_STATUS[a.status]?.[L() === "en" ? 1 : 0] || a.status)]))],
+    [t("p.dependents"), tbl([f("name"), f("iqama_no"), f("relation"), f("passport_expiry")],
+      D.dependents.filter((d) => d.employee_id === id).map((d) => [esc(d.name), esc(d.iqama_no || ""), esc(d.relation || ""), esc(fmtDate(d.passport_expiry))]))],
+  ];
+  printNow({
+    title: `${t("print.file")} — ${empName(e)}`,
+    subtitle: [e.job_title, e.department || e.company].filter(Boolean).join(" • "),
+    body: sections.map(([h, b]) => `<section class="psec"><h3 class="rsec">${esc(h)}</h3>${b}</section>`).join(""),
+  });
+}
+
 function printModal(m) {
-  document.body.classList.add("printing-modal");
-  window.print();
-  setTimeout(() => document.body.classList.remove("printing-modal"), 500);
+  // Modals with an official document inside (appraisal, AI answer) print that document as it is.
+  const doc = $(".report-doc", m.root);
+  if (doc) return printNow({ title: "", body: doc.outerHTML, raw: true, sign: false });
+  printNow({ title: $("header h3", m.root)?.textContent || "", body: cleanHtml($(".body", m.root)?.innerHTML || "") });
 }
 
 // ================= DASHBOARD =================
@@ -684,10 +845,7 @@ function openProfile(id, tab) {
     $$("[data-tab]", m.root).forEach((x) => x.classList.toggle("on", x === b));
     $$("[data-pane]", m.root).forEach((p) => p.classList.toggle("hidden", p.dataset.pane !== b.dataset.tab));
   }));
-  $("#pPrint", m.root).addEventListener("click", () => {
-    $$("[data-pane]", m.root).forEach((p) => p.classList.remove("hidden"));
-    printModal(m);
-  });
+  $("#pPrint", m.root).addEventListener("click", () => printProfile(id));
   $("#pEdit", m.root)?.addEventListener("click", () => { m.close(); openForm("employees", e, { form: e.kind }); });
   $("#pAddDoc", m.root)?.addEventListener("click", () => { m.close(); openForm("documents", null, { preset: { employee_id: String(id) }, title: t("doc.add") }); });
   $("#pAddDep", m.root)?.addEventListener("click", () => { m.close(); openForm("dependents", null, { preset: { employee_id: String(id) } }); });
@@ -855,7 +1013,7 @@ PAGES.saudization = () => {
       <div class="card kpi ${need ? "orange" : "green"}"><div class="l">${esc(t("k.target"))}</div><div class="v num">${target ?? "—"}${target ? "%" : ""}</div><div class="h">${need !== null ? `${t("s.need")}: ${need}` : ""}</div></div>
     </div>
     <div class="grid g2">
-      <div class="card">
+      <div class="card no-print">
         <h3>${esc(t("s.sim"))}</h3>
         <div class="form-grid">
           ${isAdmin() ? `<div><label class="fl">${esc(t("s.target.set"))}</label><div style="display:flex;gap:6px"><input class="input" type="number" min="0" max="100" step="0.1" id="tgt" value="${target ?? ""}" dir="ltr"><button class="btn sm" id="tgtSave">${esc(t("save"))}</button></div></div>` : ""}
@@ -1236,7 +1394,7 @@ PAGES.import = () => {
         <div class="imp-item ${c.ok ? "" : "bad"}"><div class="imp-h"><b>${esc(c.label)}</b><span class="muted small">${esc(c.name)}</span></div>
         <div class="imp-s">${esc(c.summary)}</div>${c.changes.length ? `<ul class="imp-c">${c.changes.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}</div>`).join("")}
         <div style="margin-top:10px"><button class="btn ghost" id="impPrint">🖨 ${esc(t("print"))}</button></div></div>`;
-      $("#impPrint").onclick = () => window.print();
+      $("#impPrint").onclick = () => { const c = $("#impRep").cloneNode(true); $("h3", c)?.remove(); printNow({ title: t("i.report"), body: cleanHtml(c.innerHTML) }); };
     }
     im.className = cards.every((c) => c.ok) ? "msg ok" : "msg err";
     im.textContent = `${t("i.done")} ✔ (${cards.filter((c) => c.ok).length}/${files.length})`;
@@ -1662,8 +1820,39 @@ PAGES.appraisals = () => {
 };
 
 // ================= REPORTS =================
-const REPORTS = ["leavers", "saud", "docs", "staff", "payroll", "leaves", "labor"];
-const REP_ICON = { leavers: "🚪", saud: "📊", docs: "⏰", staff: "👥", payroll: "💰", leaves: "🌴", labor: "👷" };
+const REPORTS = ["quality", "leavers", "saud", "docs", "staff", "payroll", "leaves", "labor"];
+const REP_ICON = { quality: "🩺", leavers: "🚪", saud: "📊", docs: "⏰", staff: "👥", payroll: "💰", leaves: "🌴", labor: "👷" };
+
+// Data quality: everything that still needs a person to complete or correct, grouped by problem.
+function qualityReport() {
+  const st = settings();
+  const active = D.employees.filter((e) => e.status !== "left");
+  const AR = /[\u0600-\u06FF]/;
+  const where = (e) => (groupOf(e) === "labor" ? e.company : e.department) || "—";
+  const idCount = new Map();
+  for (const e of D.employees) if (e.id_no) idCount.set(e.id_no, (idCount.get(e.id_no) || 0) + 1);
+  const docsOf = (e) => D.documents.filter((d) => d.employee_id === e.id);
+  const checks = [
+    ["q.idbad", active.filter((e) => !/^[12]\d{9}$/.test(String(e.id_no || ""))), (e) => e.id_no || "—"],
+    ["q.iddup", active.filter((e) => e.id_no && idCount.get(e.id_no) > 1), (e) => e.id_no],
+    ["q.noar", active.filter((e) => groupOf(e) === "staff" && !AR.test(e.name_ar || "")), (e) => e.name_ar || "—"],
+    ["q.nodept", active.filter((e) => groupOf(e) === "staff" && !e.department), () => ""],
+    ["q.nocomp", active.filter((e) => e.kind === "labor" && !e.company), () => ""],
+    ["q.nojob", active.filter((e) => !e.job_title), () => ""],
+    ["q.nonat", active.filter((e) => !e.nationality), () => ""],
+    ["q.nomob", active.filter((e) => !/^0?5\d{8}$/.test(String(e.mobile || "").replace(/\D/g, "").replace(/^966/, ""))), (e) => e.mobile || "—"],
+    ["q.nocontract", active.filter((e) => e.kind === "staff" && !isMoved(e) && !docsOf(e).some((d) => d.doc_type === "contract")), () => ""],
+    ["q.noiqama", active.filter((e) => !isSaudi(e.nationality) && !/^1/.test(String(e.id_no || "")) && !docsOf(e).some((d) => d.doc_type === "iqama")), () => ""],
+    ["q.nodate", active.filter((e) => docsOf(e).some((d) => docStatus(d, st).status === "none")), (e) => docsOf(e).filter((d) => docStatus(d, st).status === "none").map((d) => docLabel(d.doc_type)).join("، ")],
+    ["q.expired", active.filter((e) => docsOf(e).some((d) => docStatus(d, st).status === "expired")), (e) => docsOf(e).filter((d) => docStatus(d, st).status === "expired").map((d) => `${docLabel(d.doc_type)} ${fmtDate(d.expiry_date)}`).join("، ")],
+  ];
+  const total = checks.reduce((s, [, list]) => s + list.length, 0);
+  const n = (v) => `<span class="num">${esc(v)}</span>`;
+  return `<div class="rsum"><div><span>${esc(t("q.people"))}</span><b>${active.length}</b></div><div><span>${esc(t("q.issues"))}</span><b>${total}</b></div><div><span>${esc(t("q.ok"))}</span><b>${checks.filter(([, l]) => !l.length).length} / ${checks.length}</b></div></div>
+    ${reportTable([t("q.check"), t("q.count")], checks.map(([k, list]) => [esc(t(k)), list.length ? `<b class="d-exp">${list.length}</b>` : `<span class="pill s-ok">✔</span>`]))}
+    ${checks.filter(([, list]) => list.length).map(([k, list, detail]) => `<h3 class="rsec">${esc(t(k))} (${list.length})</h3>
+      ${reportTable(["#", f("name"), f("id_no"), `${f("department")} / ${f("company")}`, t("details")], list.map((e, i) => [n(i + 1), esc(empName(e)), n(e.id_no || ""), esc(where(e)), esc(detail(e) || "")]))}`).join("")}`;
+}
 
 PAGES.reports = () => {
   const which = tableState.report;
@@ -1678,6 +1867,7 @@ function reportTable(headers, rows, foot) {
 }
 
 function buildReport(k) {
+  if (k === "quality") return qualityReport();
   const st = settings();
   const staff = D.employees.filter((e) => e.kind === "staff" && e.status !== "left");
   const labor = D.employees.filter((e) => groupOf(e) === "labor" && e.status !== "left");
@@ -1846,8 +2036,8 @@ function setupIdleLock() {
     try { localStorage.setItem("hr_theme", n); } catch {}
     route();
   };
-  $("#printBtn").onclick = () => window.print();
-  document.addEventListener("click", (e) => { if (e.target.closest('[data-act="print"]')) window.print(); });
+  $("#printBtn").onclick = () => { buildPagePrint(); setTimeout(() => window.print(), 60); };
+  document.addEventListener("click", (e) => { if (e.target.closest('[data-act="print"]')) { buildPagePrint(); setTimeout(() => window.print(), 60); } });
   window.addEventListener("hashchange", route);
   route();
 })();
