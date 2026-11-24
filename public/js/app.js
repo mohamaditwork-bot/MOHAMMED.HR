@@ -65,6 +65,9 @@ async function reload() {
 
 // Employees transferred from the hotel's sponsorship to an outside company (handled like contractor labor).
 const isMoved = (e) => /^(منقولين|طرف ثالث)/.test(String(e?.company || ""));
+// Three groups everywhere: permanent staff, contractor labor, and transferred (منقولين — not contractors).
+const groupOf = (e) => (e?.kind !== "labor" ? "staff" : isMoved(e) ? "moved" : "labor");
+const GROUP_LABEL = { staff: "u.staff", labor: "u.labor", moved: "u.movedg" };
 const empName = (e) => (e ? (L() === "en" && e.name_en ? e.name_en : e.name_ar) : "");
 const docLabel = (k) => (DOC_TYPES[k] ? DOC_TYPES[k][L()] : k);
 const stPill = (s) => `<span class="pill s-${s}">${esc(t("st." + s))}</span>`;
@@ -75,6 +78,7 @@ const I = {
   dashboard: "M3 13h8V3H3zm0 8h8v-6H3zm10 0h8V11h-8zm0-18v6h8V3z",
   employees: "M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm0 2c-2.3 0-7 1.2-7 3.5V19h7v-2.5c0-.9.4-1.7 1-2.4A9 9 0 0 0 8 13zm8 0c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z",
   labor: "M12 2 1 7l11 5 9-4.1V15h2V7zm-7 9.2V15c0 2.2 3.1 4 7 4s7-1.8 7-4v-3.8l-7 3.2z",
+  moved: "M6.99 11 3 15l3.99 4v-3H14v-2H6.99zM21 9l-3.99-4v3H10v2h7.01v3z",
   documents: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm-1 7V3.5L18.5 9zM8 13h8v2H8zm0 4h8v2H8z",
   saudization: "M4 20h16v2H4zM6 10h3v8H6zm5-4h3v12h-3zm5 7h3v5h-3z",
   recruitment: "M15 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zM6 10V7H4v3H1v2h3v3h2v-3h3v-2zm9 4c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z",
@@ -97,7 +101,7 @@ const icon = (k) => `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="t
 
 const NAV = [
   ["nav.main", ["dashboard", "reports", "assistant"]],
-  ["nav.people", ["employees", "labor", "leaves", "movements", "appraisals", "dependents"]],
+  ["nav.people", ["employees", "labor", "moved", "leaves", "movements", "appraisals", "dependents"]],
   ["nav.compliance", ["documents", "insurance", "platforms", "tasks"]],
   ["nav.growth", ["saudization", "recruitment"]],
   ["nav.tools", ["import", "trash"]],
@@ -109,7 +113,8 @@ function renderNav() {
   const alerts = buildAlerts(D.employees, D.documents, st, undefined, { appraisals: D.appraisals || [], attachments: D.attachments || [] });
   const counts = {
     employees: D.employees.filter((e) => e.kind === "staff" && e.status !== "left").length,
-    labor: D.employees.filter((e) => e.kind === "labor" && e.status !== "left").length,
+    labor: D.employees.filter((e) => groupOf(e) === "labor" && e.status !== "left").length,
+    moved: D.employees.filter((e) => groupOf(e) === "moved" && e.status !== "left").length,
     documents: alerts.length,
     tasks: D.tasks.filter((x) => x.status === "open").length,
     recruitment: D.applicants.filter((a) => !["hired", "rejected"].includes(a.stage)).length,
@@ -408,7 +413,8 @@ PAGES.dashboard = () => {
   const st = settings();
   const active = D.employees.filter((e) => e.status !== "left");
   const staff = active.filter((e) => e.kind === "staff");
-  const labor = active.filter((e) => e.kind === "labor");
+  const labor = active.filter((e) => groupOf(e) === "labor");
+  const moved = active.filter((e) => groupOf(e) === "moved");
   const r = ratio(staff);
   const docSt = D.documents.filter((d) => EMP.get(d.employee_id)?.status !== "left").map((d) => ({ d, s: docStatus(d, st) }));
   const cnt = (s) => docSt.filter((x) => x.s.status === s).length;
@@ -433,7 +439,8 @@ PAGES.dashboard = () => {
       ${kpi(t("k.ratio"), pct(r.pct), st.saudization_target ? `${t("k.target")}: ${st.saudization_target}%` : "", "blue", "saudization")}
       ${kpi(t("k.nonsaudi"), r.non_saudi, "")}
       ${kpi(t("k.labor"), labor.length, `${new Set(labor.map((e) => e.company).filter(Boolean)).size} ${t("k.companies")}`, "", "labor")}
-      ${kpi(t("k.workforce"), staff.length + labor.length, "")}
+      ${moved.length ? kpi(t("p.moved"), moved.length, t("u.moved.t"), "", "moved") : ""}
+      ${kpi(t("k.workforce"), staff.length + labor.length + moved.length, "")}
       ${kpi(t("k.expired"), cnt("expired"), "", "red", "documents/expired")}
       ${kpi(t("k.near"), cnt("near"), `${t("set.iqama")} ${st.iqama} • ${t("set.contracts")} ${st.contracts} • ${t("set.ajeer")} ${st.ajeer ?? 45} • ${t("set.docs")} ${st.docs}`, "orange", "documents/near")}
       ${kpi(t("k.nodate"), cnt("none"), "", "", "documents/none")}
@@ -451,10 +458,11 @@ PAGES.dashboard = () => {
       ${urgentCard(alerts.filter((a) => a.employee.kind !== "labor"), `${t("urgent")} — ${t("u.staff")}`, "staff")}
     </div>
     <div class="grid g2">
-      ${urgentCard(alerts.filter((a) => a.employee.kind === "labor"), `${t("urgent")} — ${t("u.labor")}`, "labor")}
+      ${urgentCard(alerts.filter((a) => groupOf(a.employee) === "labor"), `${t("urgent")} — ${t("u.labor")}`, "labor")}
       <div class="card"><h3>${esc(t("c.company"))}</h3><div class="chart" id="chComp"></div></div>
     </div>
     <div class="grid g2">
+      ${moved.length ? urgentCard(alerts.filter((a) => groupOf(a.employee) === "moved"), `${t("urgent")} — ${t("u.movedg")}`, "moved") : ""}
       <div class="card"><h3>${esc(t("c.funnel"))}</h3><div class="chart" id="chFunnel"></div></div>
     </div>`;
 
@@ -507,7 +515,7 @@ function urgentCard(list, title, kind) {
   const expired = list.filter((a) => a.days < 0).length;
   return `<div class="card"><h3 class="click" data-go="documents/all/${kind}">${esc(title)} <span class="pill s-expired">${expired} ${esc(t("st.expired"))}</span> <span class="pill s-near">${list.length - expired} ${esc(t("st.near"))}</span></h3>
     <div class="tbl compact" style="max-height:360px;overflow:auto"><table><thead><tr><th>${esc(f("name"))}</th><th>${esc(t("doc.type"))}</th><th>${esc(t("doc.expiry"))}</th><th class="num">${esc(t("doc.days"))}</th></tr></thead>
-    <tbody>${list.slice(0, 60).map((a) => `<tr class="click" data-emp="${a.employee.id}"><td>${esc(empName(a.employee))}<br><small class="muted">${esc(kind === "labor" ? a.employee.company || "" : a.employee.department || "")}</small></td><td>${esc(docLabel(a.doc.doc_type))}</td><td class="num">${esc(fmtDate(a.expiry))}</td><td class="num">${daysCell(a.days)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">✓</td></tr>`}</tbody></table></div></div>`;
+    <tbody>${list.slice(0, 60).map((a) => `<tr class="click" data-emp="${a.employee.id}"><td>${esc(empName(a.employee))}<br><small class="muted">${esc(kind === "staff" ? a.employee.department || "" : a.employee.company || "")}</small></td><td>${esc(docLabel(a.doc.doc_type))}</td><td class="num">${esc(fmtDate(a.expiry))}</td><td class="num">${daysCell(a.days)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">✓</td></tr>`}</tbody></table></div></div>`;
 }
 
 // ================= AI helpers =================
@@ -542,8 +550,8 @@ function bindRowActions(root) {
   $$("[data-edit]", root).forEach((b) => b.addEventListener("click", () => { const e = EMP.get(+b.dataset.edit); openForm("employees", e, { form: e.kind }); }));
 }
 
-function peoplePage(kind) {
-  const rows = D.employees.filter((e) => e.kind === kind);
+function peoplePage(kind, group = kind) {
+  const rows = D.employees.filter((e) => groupOf(e) === group);
   // Every document's status per employee, most urgent first — so the column can say WHICH document.
   const RANK = { expired: 3, near: 2, none: 1, ok: 0, used: 0 };
   const docsBy = new Map();
@@ -582,7 +590,7 @@ function peoplePage(kind) {
     ]
     : [
       { k: "emp_no", label: f("emp_no"), num: true },
-      { k: "name", label: f("name"), get: (e) => empName(e), render: (e) => `<b>${esc(empName(e))}</b>${isMoved(e) ? ` <span class="pill s-info" title="${esc(t("u.moved.t"))}">↪ ${esc(t("u.moved"))}</span>` : ""}` },
+      { k: "name", label: f("name"), get: (e) => empName(e), render: (e) => `<b>${esc(empName(e))}</b>` },
       { k: "docs", label: t("pp.docs"), get: (e) => issues(e).map(issueText).join(" • ") || t("pp.allok"), render: docCell, wrap: true },
       { k: "id_no", label: f("id_no"), num: true },
       { k: "company", label: f("company") },
@@ -593,12 +601,12 @@ function peoplePage(kind) {
       { k: "status", label: f("status"), get: (e) => t("emp." + e.status), render: (e) => `<span class="pill ${e.status === "left" ? "s-none" : "s-info"}">${esc(t("emp." + e.status))}</span>` },
       rowActions,
     ];
-  const title = t(kind === "staff" ? "p.employees" : "p.labor");
+  const title = t(group === "moved" ? "p.moved" : kind === "staff" ? "p.employees" : "p.labor");
   $("#view").innerHTML = head(title, `${rows.filter((e) => e.status !== "left").length} ${t("emp.active")}`,
     `${canEdit() ? `<button class="btn" id="addEmp">+ ${esc(t("add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div><p class="muted small legend">${t("pp.legend")}</p>`;
-  $("#addEmp")?.addEventListener("click", () => openForm("employees", null, { form: kind, preset: { kind, status: "active" }, title: `${t("add")} — ${title}` }));
+  $("#addEmp")?.addEventListener("click", () => openForm("employees", null, { form: kind, preset: { kind, status: "active", ...(group === "moved" ? { company: "منقولين" } : {}) }, title: `${t("add")} — ${title}` }));
   dataTable($("#tb"), {
-    id: "people-" + kind, rows, cols, exportName: title,
+    id: "people-" + group, rows, cols, exportName: title,
     filters: kind === "staff"
       ? [{ k: "department", label: t("filter.dept"), get: (e) => e.department }, { k: "nationality", label: t("filter.nat"), get: (e) => e.nationality }]
       : [{ k: "company", label: t("filter.company"), get: (e) => e.company }, { k: "nationality", label: t("filter.nat"), get: (e) => e.nationality }],
@@ -613,6 +621,7 @@ function peoplePage(kind) {
 }
 PAGES.employees = () => peoplePage("staff");
 PAGES.labor = () => peoplePage("labor");
+PAGES.moved = () => peoplePage("labor", "moved");
 
 function openProfile(id, tab) {
   const e = EMP.get(id);
@@ -720,19 +729,20 @@ PAGES.documents = () => {
   const rows = D.documents
     .filter((d) => EMP.has(d.employee_id))
     .map((d) => ({ ...d, s: docStatus(d, st), e: EMP.get(d.employee_id) }));
-  const kind = tableState.docsKind === "labor" ? "labor" : "staff";
-  const bad = (k) => rows.filter((r) => (r.e.kind === "labor") === (k === "labor") && (r.s.status === "expired" || r.s.status === "near")).length;
+  const kind = ["labor", "moved"].includes(tableState.docsKind) ? tableState.docsKind : "staff";
+  const bad = (k) => rows.filter((r) => groupOf(r.e) === k && (r.s.status === "expired" || r.s.status === "near")).length;
+  const tabs = ["staff", "labor", "moved"].filter((k) => k !== "moved" || rows.some((r) => groupOf(r.e) === "moved"));
   $("#view").innerHTML = head(t("p.documents"), `${t("set.iqama")} ${st.iqama} • ${t("set.contracts")} ${st.contracts} • ${t("set.docs")} ${st.docs} ${t("days")}`,
     `${canEdit() ? `<button class="btn ghost" id="renewNow">🔁 ${esc(t("rn.btn").replace("{n}", st.contract_renew_days ?? 75))}</button><button class="btn" id="addDoc">+ ${esc(t("doc.add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) +
-    `<div class="tabs" id="docKind">${["staff", "labor"].map((k) => `<button class="tab ${k === kind ? "on" : ""}" data-k="${k}">${esc(t(k === "labor" ? "u.labor" : "u.staff"))} <span class="pill ${bad(k) ? "s-expired" : "s-ok"}">${bad(k)}</span></button>`).join("")}</div><div class="card" id="tb"></div>`;
+    `<div class="tabs" id="docKind">${tabs.map((k) => `<button class="tab ${k === kind ? "on" : ""}" data-k="${k}">${esc(t(GROUP_LABEL[k]))} <span class="pill ${bad(k) ? "s-expired" : "s-ok"}">${bad(k)}</span></button>`).join("")}</div><div class="card" id="tb"></div>`;
   $("#addDoc")?.addEventListener("click", () => openForm("documents", null, { title: t("doc.add") }));
   $("#renewNow")?.addEventListener("click", renewContractsNow);
   $$("#docKind [data-k]").forEach((b) => b.addEventListener("click", () => { tableState.docsKind = b.dataset.k; PAGES.documents(); }));
   dataTable($("#tb"), {
-    id: "docs_" + kind, rows: rows.filter((r) => (r.e.kind === "labor") === (kind === "labor")).sort((a, b) => (ST_ORDER[a.s.status] ?? 9) - (ST_ORDER[b.s.status] ?? 9) || (kind === "labor" ? (a.doc_type === "ajeer" ? 0 : 1) - (b.doc_type === "ajeer" ? 0 : 1) : 0) || (a.s.days ?? 1e9) - (b.s.days ?? 1e9)), exportName: `${t("p.documents")} — ${t(kind === "labor" ? "u.labor" : "u.staff")}`,
+    id: "docs_" + kind, rows: rows.filter((r) => groupOf(r.e) === kind).sort((a, b) => (ST_ORDER[a.s.status] ?? 9) - (ST_ORDER[b.s.status] ?? 9) || (kind !== "staff" ? (a.doc_type === "ajeer" ? 0 : 1) - (b.doc_type === "ajeer" ? 0 : 1) : 0) || (a.s.days ?? 1e9) - (b.s.days ?? 1e9)), exportName: `${t("p.documents")} — ${t(GROUP_LABEL[kind])}`,
     cols: [
       { k: "owner", label: t("doc.owner"), get: (r) => empName(r.e), render: (r) => `<b>${esc(empName(r.e))}</b><br><small class="muted">${esc(r.e.id_no || "")}</small>` },
-      { k: "where", label: kind === "labor" ? f("company") : f("department"), get: (r) => (r.e.kind === "labor" ? r.e.company : r.e.department) },
+      { k: "where", label: kind !== "staff" ? f("company") : f("department"), get: (r) => (r.e.kind === "labor" ? r.e.company : r.e.department) },
       { k: "type", label: t("doc.type"), get: (r) => docLabel(r.doc_type) },
       { k: "number", label: t("doc.number"), num: true },
       { k: "expiry", label: t("doc.expiry"), num: true, get: (r) => r.s.expiry || r.expiry_date },
@@ -740,7 +750,7 @@ PAGES.documents = () => {
       { k: "status", label: t("doc.status"), get: (r) => t("st." + r.s.status), render: (r) => stPill(r.s.status) + (r.doc_type === "contract" && (r.s.status === "near" || r.s.status === "expired") ? (renewalReady(r, (D.appraisals || []).filter((a) => a.employee_id === r.employee_id), D.attachments || []) ? ` <span class="pill s-ok" title="${esc(t("rn.ready.t"))}">📝 ${esc(t("rn.ready"))}</span>` : leavingReason(r) ? "" : ` <span class="pill s-near">⚠️ ${esc(t("rn.noform"))}</span>`) : "") },
       { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<span class="row-acts">${!r.s.expiry ? `<button class="btn ${r.s.status === "pending" ? "" : "ghost"} sm" data-pend="${r.id}" title="${esc(t("pd.t"))}">📨 ${esc(t(r.s.status === "pending" ? "pd.off" : "pd.on"))}</button>` : ""}<button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>${r.doc_type === "contract" ? `<button class="btn ${r.details?.no_renew ? "danger" : "ghost"} sm" data-leave="${r.id}" title="${esc(t("rn.leave.t"))}">🚪 ${esc(r.details?.no_renew ? t("rn.leaving") : t("rn.leave"))}</button>` : ""}</span>` : "" },
     ],
-    filters: [{ k: "type", label: t("filter.type"), get: (r) => docLabel(r.doc_type) }, { k: "where", label: kind === "labor" ? f("company") : f("department"), get: (r) => (r.e.kind === "labor" ? r.e.company : r.e.department) }],
+    filters: [{ k: "type", label: t("filter.type"), get: (r) => docLabel(r.doc_type) }, { k: "where", label: kind !== "staff" ? f("company") : f("department"), get: (r) => (r.e.kind === "labor" ? r.e.company : r.e.department) }],
     chipGet: (r) => t("st." + r.s.status),
     onRow: (r) => openForm("documents", D.documents.find((d) => d.id === r.id)),
     afterDraw: (root) => {
@@ -1619,7 +1629,7 @@ function reportTable(headers, rows, foot) {
 function buildReport(k) {
   const st = settings();
   const staff = D.employees.filter((e) => e.kind === "staff" && e.status !== "left");
-  const labor = D.employees.filter((e) => e.kind === "labor" && e.status !== "left");
+  const labor = D.employees.filter((e) => groupOf(e) === "labor" && e.status !== "left");
   const n = (v) => `<span class="num">${esc(v)}</span>`;
   if (k === "saud") {
     const r = ratio(staff);
@@ -1706,7 +1716,7 @@ function setupSearch() {
     if (s.length < 2) return res.classList.add("hidden");
     const out = D.employees.filter((e) => [e.name_ar, e.name_en, e.id_no, e.emp_no].some((v) => v && norm(v).includes(s))).slice(0, 20);
     res.innerHTML = out.length
-      ? out.map((e) => `<button data-id="${e.id}">${esc(empName(e))}<small>${esc(t(e.kind === "labor" ? "p.labor" : "p.employees"))} • ${esc(e.id_no || "")} • ${esc(e.kind === "labor" ? e.company || "" : e.department || "")}</small></button>`).join("")
+      ? out.map((e) => `<button data-id="${e.id}">${esc(empName(e))}<small>${esc(t({ staff: "p.employees", labor: "p.labor", moved: "p.moved" }[groupOf(e)]))} • ${esc(e.id_no || "")} • ${esc(e.kind === "labor" ? e.company || "" : e.department || "")}</small></button>`).join("")
       : `<div class="empty" style="padding:12px">${esc(t("none"))}</div>`;
     res.classList.remove("hidden");
     $$("button", res).forEach((b) => b.addEventListener("click", () => { res.classList.add("hidden"); q.value = ""; openProfile(+b.dataset.id); }));
