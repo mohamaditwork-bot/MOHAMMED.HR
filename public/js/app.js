@@ -903,7 +903,7 @@ PAGES.documents = () => {
       { k: "expiry", label: t("doc.expiry"), num: true, get: (r) => r.s.expiry || r.expiry_date },
       { k: "days", label: t("doc.days"), num: true, get: (r) => r.s.days, render: (r) => (r.s.status === "used" ? "—" : daysCell(r.s.days)) },
       { k: "status", label: t("doc.status"), get: (r) => t("st." + r.s.status), render: (r) => stPill(r.s.status) + (r.doc_type === "contract" && (r.s.status === "near" || r.s.status === "expired") ? (renewalReady(r, (D.appraisals || []).filter((a) => a.employee_id === r.employee_id), D.attachments || []) ? ` <span class="pill s-ok" title="${esc(t("rn.ready.t"))}">📝 ${esc(t("rn.ready"))}</span>` : leavingReason(r) ? "" : ` <span class="pill s-near">⚠️ ${esc(t("rn.noform"))}</span>`) : "") },
-      { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<span class="row-acts">${!r.s.expiry ? `<button class="btn ${r.s.status === "pending" ? "" : "ghost"} sm" data-pend="${r.id}" title="${esc(t("pd.t"))}">📨 ${esc(t(r.s.status === "pending" ? "pd.off" : "pd.on"))}</button>` : ""}<button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>${r.doc_type === "contract" ? `<button class="btn ${r.details?.no_renew ? "danger" : "ghost"} sm" data-leave="${r.id}" title="${esc(t("rn.leave.t"))}">🚪 ${esc(r.details?.no_renew ? t("rn.leaving") : t("rn.leave"))}</button>` : ""}</span>` : "" },
+      { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<span class="row-acts">${!r.s.expiry || r.s.status === "expired" || r.s.status === "pending" ? `<button class="btn ${r.s.status === "pending" ? "" : "ghost"} sm" data-pend="${r.id}" title="${esc(t("pd.t"))}">📨 ${esc(t(r.s.status === "pending" ? "pd.off" : "pd.on"))}</button>` : ""}<button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>${r.doc_type === "contract" ? `<button class="btn ${r.details?.no_renew ? "danger" : "ghost"} sm" data-leave="${r.id}" title="${esc(t("rn.leave.t"))}">🚪 ${esc(r.details?.no_renew ? t("rn.leaving") : t("rn.leave"))}</button>` : ""}</span>` : "" },
     ],
     filters: [{ k: "type", label: t("filter.type"), get: (r) => docLabel(r.doc_type) }, { k: "where", label: kind !== "staff" ? f("company") : f("department"), get: (r) => (kind === "staff" ? r.e.department : r.e.company) }],
     chipGet: (r) => t("st." + r.s.status),
@@ -1296,7 +1296,7 @@ async function platformOk(id) {
   const e = EMP.get(id);
   if (!confirm(t("pl.ok.q").replace("{n}", empName(e)))) return;
   const p = { ...(e.platform || {}) };
-  for (const k of PLAT_MARKS) if (p[k] === "✖" || p[k] === "؟") p[k] = "✔";
+  for (const k of PLAT_MARKS) if (p[k] === "✖" || p[k] === "؟" || (!p[k] && ["qiwa_staff", "qiwa_contract", "gosi"].includes(k))) p[k] = "✔";
   p.result = "مطابق";
   p.note = `${t("pl.ok.note")} — ${ME?.name || ""} ${new Date().toISOString().slice(0, 10)}`;
   try { await api("/api/rows?table=employees", { method: "PUT", body: { id, platform: p } }); toast(t("saved")); await refresh(); } catch (err) { toast(err.message, true); }
