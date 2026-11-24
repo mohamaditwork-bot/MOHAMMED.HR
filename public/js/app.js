@@ -451,18 +451,20 @@ PAGES.dashboard = () => {
     </div>
     <div class="grid g2">
       <div class="card"><h3>${esc(t("c.dept"))}</h3><div class="chart" id="chDept" style="height:360px"></div></div>
-      <div class="card"><h3>${esc(t("urgent"))} <span class="pill s-expired">${alerts.length}</span></h3>
-        <div class="tbl compact" style="max-height:360px;overflow:auto"><table><thead><tr><th>${esc(f("name"))}</th><th>${esc(t("doc.type"))}</th><th>${esc(t("doc.expiry"))}</th><th class="num">${esc(t("doc.days"))}</th></tr></thead>
-        <tbody>${alerts.slice(0, 60).map((a) => `<tr class="click" data-emp="${a.employee.id}"><td>${esc(empName(a.employee))}<br><small class="muted">${esc(a.employee.kind === "labor" ? a.employee.company || "" : a.employee.department || "")}</small></td><td>${esc(docLabel(a.doc.doc_type))}</td><td class="num">${esc(fmtDate(a.expiry))}</td><td class="num">${daysCell(a.days)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">✓</td></tr>`}</tbody></table></div></div>
+      ${urgentCard(alerts.filter((a) => a.employee.kind !== "labor"), `${t("urgent")} — ${t("u.staff")}`, "staff")}
     </div>
     <div class="grid g2">
+      ${urgentCard(alerts.filter((a) => a.employee.kind === "labor"), `${t("urgent")} — ${t("u.labor")}`, "labor")}
       <div class="card"><h3>${esc(t("c.company"))}</h3><div class="chart" id="chComp"></div></div>
+    </div>
+    <div class="grid g2">
       <div class="card"><h3>${esc(t("c.funnel"))}</h3><div class="chart" id="chFunnel"></div></div>
     </div>`;
 
   $$("[data-go]").forEach((el) => el.addEventListener("click", () => {
-    const [p, s] = el.dataset.go.split("/");
-    if (s) tableState.docs = { ...(tableState.docs || { q: "", f: {}, sort: null }), chip: t("st." + s) };
+    const [p, s, kind] = el.dataset.go.split("/");
+    if (s) for (const id of ["docs_staff", "docs_labor"]) tableState[id] = { ...(tableState[id] || { q: "", f: {}, sort: null }), chip: s === "all" ? "" : t("st." + s) };
+    if (kind) tableState.docsKind = kind;
     location.hash = p;
   }));
   $$("[data-emp]").forEach((el) => el.addEventListener("click", () => openProfile(+el.dataset.emp)));
@@ -502,6 +504,14 @@ PAGES.dashboard = () => {
   chart($("#chFunnel"), { color: pal, tooltip: { trigger: "item" },
     series: [{ type: "funnel", left: "10%", width: "80%", sort: "none", minSize: "20%", label: { position: "inside", color: "#fff", fontWeight: 700 }, data: stages.map((s) => ({ name: t("stage." + s), value: D.applicants.filter((a) => a.stage === s).length })) }] });
 };
+
+// Expired / soon-to-expire documents for one group (permanent staff or labor).
+function urgentCard(list, title, kind) {
+  const expired = list.filter((a) => a.days < 0).length;
+  return `<div class="card"><h3 class="click" data-go="documents/all/${kind}">${esc(title)} <span class="pill s-expired">${expired} ${esc(t("st.expired"))}</span> <span class="pill s-near">${list.length - expired} ${esc(t("st.near"))}</span></h3>
+    <div class="tbl compact" style="max-height:360px;overflow:auto"><table><thead><tr><th>${esc(f("name"))}</th><th>${esc(t("doc.type"))}</th><th>${esc(t("doc.expiry"))}</th><th class="num">${esc(t("doc.days"))}</th></tr></thead>
+    <tbody>${list.slice(0, 60).map((a) => `<tr class="click" data-emp="${a.employee.id}"><td>${esc(empName(a.employee))}<br><small class="muted">${esc(kind === "labor" ? a.employee.company || "" : a.employee.department || "")}</small></td><td>${esc(docLabel(a.doc.doc_type))}</td><td class="num">${esc(fmtDate(a.expiry))}</td><td class="num">${daysCell(a.days)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">✓</td></tr>`}</tbody></table></div></div>`;
+}
 
 // ================= AI helpers =================
 function md(s) {
@@ -713,15 +723,19 @@ PAGES.documents = () => {
   const rows = D.documents
     .filter((d) => EMP.has(d.employee_id))
     .map((d) => ({ ...d, s: docStatus(d, st), e: EMP.get(d.employee_id) }));
+  const kind = tableState.docsKind === "labor" ? "labor" : "staff";
+  const bad = (k) => rows.filter((r) => (r.e.kind === "labor") === (k === "labor") && (r.s.status === "expired" || r.s.status === "near")).length;
   $("#view").innerHTML = head(t("p.documents"), `${t("set.iqama")} ${st.iqama} • ${t("set.contracts")} ${st.contracts} • ${t("set.docs")} ${st.docs} ${t("days")}`,
-    `${canEdit() ? `<button class="btn ghost" id="renewNow">🔁 ${esc(t("rn.btn").replace("{n}", st.contract_renew_days ?? 75))}</button><button class="btn" id="addDoc">+ ${esc(t("doc.add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) + `<div class="card" id="tb"></div>`;
+    `${canEdit() ? `<button class="btn ghost" id="renewNow">🔁 ${esc(t("rn.btn").replace("{n}", st.contract_renew_days ?? 75))}</button><button class="btn" id="addDoc">+ ${esc(t("doc.add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) +
+    `<div class="tabs" id="docKind">${["staff", "labor"].map((k) => `<button class="tab ${k === kind ? "on" : ""}" data-k="${k}">${esc(t(k === "labor" ? "u.labor" : "u.staff"))} <span class="pill ${bad(k) ? "s-expired" : "s-ok"}">${bad(k)}</span></button>`).join("")}</div><div class="card" id="tb"></div>`;
   $("#addDoc")?.addEventListener("click", () => openForm("documents", null, { title: t("doc.add") }));
   $("#renewNow")?.addEventListener("click", renewContractsNow);
+  $$("#docKind [data-k]").forEach((b) => b.addEventListener("click", () => { tableState.docsKind = b.dataset.k; PAGES.documents(); }));
   dataTable($("#tb"), {
-    id: "docs", rows, exportName: t("p.documents"),
+    id: "docs_" + kind, rows: rows.filter((r) => (r.e.kind === "labor") === (kind === "labor")), exportName: `${t("p.documents")} — ${t(kind === "labor" ? "u.labor" : "u.staff")}`,
     cols: [
       { k: "owner", label: t("doc.owner"), get: (r) => empName(r.e), render: (r) => `<b>${esc(empName(r.e))}</b><br><small class="muted">${esc(r.e.id_no || "")}</small>` },
-      { k: "where", label: `${f("department")} / ${f("company")}`, get: (r) => (r.e.kind === "labor" ? r.e.company : r.e.department) },
+      { k: "where", label: kind === "labor" ? f("company") : f("department"), get: (r) => (r.e.kind === "labor" ? r.e.company : r.e.department) },
       { k: "type", label: t("doc.type"), get: (r) => docLabel(r.doc_type) },
       { k: "number", label: t("doc.number"), num: true },
       { k: "expiry", label: t("doc.expiry"), num: true, get: (r) => r.s.expiry || r.expiry_date },
@@ -729,7 +743,7 @@ PAGES.documents = () => {
       { k: "status", label: t("doc.status"), get: (r) => t("st." + r.s.status), render: (r) => stPill(r.s.status) + (r.doc_type === "contract" && (r.s.status === "near" || r.s.status === "expired") ? (renewalReady(r, (D.appraisals || []).filter((a) => a.employee_id === r.employee_id), D.attachments || []) ? ` <span class="pill s-ok" title="${esc(t("rn.ready.t"))}">📝 ${esc(t("rn.ready"))}</span>` : leavingReason(r) ? "" : ` <span class="pill s-near">⚠️ ${esc(t("rn.noform"))}</span>`) : "") },
       { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<span class="row-acts"><button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>${r.doc_type === "contract" ? `<button class="btn ${r.details?.no_renew ? "danger" : "ghost"} sm" data-leave="${r.id}" title="${esc(t("rn.leave.t"))}">🚪 ${esc(r.details?.no_renew ? t("rn.leaving") : t("rn.leave"))}</button>` : ""}</span>` : "" },
     ],
-    filters: [{ k: "type", label: t("filter.type"), get: (r) => docLabel(r.doc_type) }, { k: "kind", label: `${t("p.employees")} / ${t("p.labor")}`, get: (r) => t(r.e.kind === "labor" ? "p.labor" : "p.employees") }],
+    filters: [{ k: "type", label: t("filter.type"), get: (r) => docLabel(r.doc_type) }, { k: "where", label: kind === "labor" ? f("company") : f("department"), get: (r) => (r.e.kind === "labor" ? r.e.company : r.e.department) }],
     chipGet: (r) => t("st." + r.s.status),
     onRow: (r) => openForm("documents", D.documents.find((d) => d.id === r.id)),
     afterDraw: (root) => {
