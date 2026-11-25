@@ -1,6 +1,7 @@
 // HR control platform — single page app (vanilla ES modules, no build step).
 import { t, f, getLang, setLang } from "./i18n.js";
 import { renderDoc, sigPad, GRADES, DECISIONS, STATUS as APR_STATUS } from "./appraisal-doc.js";
+import { CRITERIA_SETS, setFor } from "./appraisal-criteria.js";
 import {
   DOC_TYPES, DEFAULT_SETTINGS, docStatus, buildAlerts, ratio, groupRatio, isSaudi, saudisNeeded, ruleCoverage, leavingReason, renewalReady, docApplies, profileOnly,
 } from "./logic.js";
@@ -1788,8 +1789,20 @@ function newAppraisal(empId) {
       <label>${esc(t("apr.period"))}<input class="input" name="period" value="${y}"></label>
       <label>${esc(t("apr.manager"))} *<input class="input" name="manager_name" required></label>
       <label>${esc(t("apr.mtitle"))}<input class="input" name="manager_title"></label>
+      <label class="full">${esc(t("apr.set"))}<select class="input" name="criteria_set">${Object.entries(CRITERIA_SETS).map(([k, s]) => `<option value="${k}">${esc(L() === "en" ? s.en : s.ar)}</option>`).join("")}</select></label>
+      <div class="full apr-crit" id="aCrit"></div>
     </form><p class="muted small">${esc(t("apr.flow"))}</p><p class="msg err" id="aerr"></p></div>
     <footer><button class="btn ghost" data-close>${esc(t("cancel"))}</button><button class="btn" id="asave">${esc(t("apr.create"))}</button></footer>`);
+  // The criteria follow the employee's department; HR can pick another set.
+  const sel = $('[name="criteria_set"]', m.root), empSel = $('[name="employee_id"]', m.root);
+  const showCrit = () => {
+    const s = CRITERIA_SETS[sel.value];
+    $("#aCrit", m.root).innerHTML = `<b>${esc(t("apr.crit"))}</b><ol>${s.criteria.map((c) => `<li>${esc(L() === "en" ? c.en : c.ar)} <span class="muted small">(${c.w})</span></li>`).join("")}</ol>`;
+  };
+  const autoSet = () => { const e = EMP.get(+empSel.value); if (e) sel.value = setFor(e.department, e.job_title); showCrit(); };
+  empSel.addEventListener("change", autoSet);
+  sel.addEventListener("change", showCrit);
+  autoSet();
   $("#asave", m.root).onclick = async () => {
     const frm = $("#afrm", m.root);
     if (!frm.reportValidity()) return;

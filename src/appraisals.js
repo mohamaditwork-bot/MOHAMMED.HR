@@ -2,8 +2,9 @@
 // through private links: manager rates & signs, then the employee signs.
 import { getDb } from "./db.js";
 import { toTrash } from "./trash.js";
+import { CRITERIA_SETS, setFor, totalWeight } from "../public/js/appraisal-criteria.js";
 
-// Criteria (weights total 70) — same as the hotel's appraisal form.
+// Legacy criteria (weights total 70) — kept for appraisals created before department-specific sets.
 export const CRITERIA = [
   { id: "quality", ar: "جودة العمل وخدمة الضيوف", en: "Quality of work & guest service", w: 10 },
   { id: "productivity", ar: "إنجاز المهام في الوقت المحدد", en: "Productivity & timely completion", w: 10 },
@@ -25,15 +26,22 @@ export function gradeOf(pct) {
   return "weak";
 }
 
+// The criteria an appraisal is scored on: its own snapshot, else the legacy set.
+const criteriaOf = (a) => {
+  const c = typeof a?.criteria === "string" ? JSON.parse(a.criteria || "null") : a?.criteria;
+  return Array.isArray(c) && c.length ? c : CRITERIA;
+};
+export const setNameOf = (key) => (CRITERIA_SETS[key] ? `نموذج ${CRITERIA_SETS[key].ar}` : null);
+
 // Scores are 1..5 per criterion; points = weight × score / 5.
-export function computeTotal(scores) {
+export function computeTotal(scores, list = CRITERIA) {
   let pts = 0;
-  for (const c of CRITERIA) {
+  for (const c of list) {
     const s = Number(scores?.[c.id]);
     if (!(s >= 1 && s <= 5)) return null;
     pts += (c.w * s) / 5;
   }
-  const pct = Math.round((pts / MAX_TOTAL) * 1000) / 10;
+  const pct = Math.round((pts / totalWeight(list)) * 1000) / 10;
   return { points: Math.round(pts * 10) / 10, pct, grade: gradeOf(pct) };
 }
 
@@ -72,7 +80,8 @@ function publicView(a) {
     manager_sig: a.manager_sig, manager_signed_at: iso(a.manager_signed_at),
     employee_sig: a.employee_sig, employee_signed_at: iso(a.employee_signed_at),
     hr_sig: a.hr_sig || null, hr_name: a.hr_name || null, hr_signed_at: iso(a.hr_signed_at),
-    criteria: CRITERIA, max_total: MAX_TOTAL,
+    criteria: criteriaOf(a), max_total: totalWeight(criteriaOf(a)),
+    criteria_set: a.criteria_set || null, criteria_name: setNameOf(a.criteria_set),
   };
 }
 
@@ -98,9 +107,10 @@ export async function signRoute(req, env, audit) {
 
   if (a.role === "manager") {
     if (a.status !== "manager") return json({ error: "تم توقيع هذا التقييم مسبقًا" }, 409);
+    const list = criteriaOf(a);
     const scores = {};
-    for (const c of CRITERIA) scores[c.id] = Number(body.scores?.[c.id]);
-    const tot = computeTotal(scores);
+    for (const c of list) scores[c.id] = Number(body.scores?.[c.id]);
+    const tot = computeTotal(scores, list);
     if (!tot) return json({ error: "قيّم كل البنود (من 1 إلى 5)" }, 400);
     const decision = String(body.decision || "");
     if (!DECISIONS.includes(decision)) return json({ error: "اختر قرار تجديد العقد" }, 400);
@@ -156,10 +166,15 @@ export async function appraisalsRoute(req, env, user, audit) {
     if (!emp) return json({ error: "اختر الموظف" }, 400);
     const mname = String(body.manager_name || "").trim().slice(0, 120);
     if (!mname) return json({ error: "اكتب اسم المدير المباشر" }, 400);
+    const e = (await db.query("SELECT department, job_title FROM employees WHERE id = $1", [emp]))[0];
+    if (!e) return json({ error: "الموظف غير موجود" }, 404);
+    // Criteria that fit the employee's department (or the set HR picked), saved with the appraisal.
+    const setKey = CRITERIA_SETS[body.criteria_set] ? body.criteria_set : setFor(e.department, e.job_title);
     const r = await db.query(
-      `INSERT INTO appraisals (employee_id, period, manager_name, manager_title, status, token_mgr, expires_at, created_by)
-       VALUES ($1,$2,$3,$4,'manager',$5, now() + interval '30 days', $6) RETURNING id, token_mgr`,
-      [emp, String(body.period || "").slice(0, 60) || null, mname, String(body.manager_title || "").slice(0, 120) || null, token(), user.name]
+      `INSERT INTO appraisals (employee_id, period, manager_name, manager_title, status, token_mgr, expires_at, created_by, criteria, criteria_set)
+       VALUES ($1,$2,$3,$4,'manager',$5, now() + interval '30 days', $6, $7, $8) RETURNING id, token_mgr`,
+      [emp, String(body.period || "").slice(0, 60) || null, mname, String(body.manager_title || "").slice(0, 120) || null, token(), user.name,
+        JSON.stringify(CRITERIA_SETS[setKey].criteria), setKey]
     );
     await audit(env, user, "create", "appraisals", r[0].id, { employee_id: emp });
     return json({ ok: true, id: r[0].id, token_mgr: r[0].token_mgr });

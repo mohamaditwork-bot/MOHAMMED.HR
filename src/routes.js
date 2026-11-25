@@ -11,6 +11,7 @@ import { detectWorkbook, applyUpdateFile, natAr, addLeftIds } from "./updates.js
 import { signRoute, appraisalsRoute } from "./appraisals.js";
 import { toTrash, trashRoute } from "./trash.js";
 import { renewContracts, generalManager, RENEW_BASIS } from "./renewals.js";
+import { CRITERIA_SETS, setFor } from "../public/js/appraisal-criteria.js";
 import { withSecrets, saveSecrets } from "./secrets.js";
 import { loginRoutes, rateLimited } from "./login.js";
 import { verifyTotp } from "./totp.js";
@@ -191,6 +192,22 @@ export async function getSettings(env) {
       s = { ...s, settings_rev: 8 };
       await env.HR.put("settings", JSON.stringify(s));
     } catch (e) { console.error("renewal wording update failed", e); }
+  }
+  // rev 9 (owner request): contract renewals carry no note; appraisals still waiting for the manager
+  // get the criteria of the employee's department.
+  if ((s.settings_rev || 0) < 9) {
+    try {
+      const db = await getDb(env);
+      await db.query("UPDATE movements SET notes = NULL WHERE move_type = 'contract' AND notes LIKE 'تجديد عقد تلقائي%'");
+      const open = await db.query(
+        "SELECT a.id, e.department, e.job_title FROM appraisals a JOIN employees e ON e.id = a.employee_id WHERE a.status = 'manager' AND a.criteria IS NULL");
+      for (const a of open) {
+        const key = setFor(a.department, a.job_title);
+        await db.query("UPDATE appraisals SET criteria = $1, criteria_set = $2 WHERE id = $3", [JSON.stringify(CRITERIA_SETS[key].criteria), key, a.id]);
+      }
+      s = { ...s, settings_rev: 9 };
+      await env.HR.put("settings", JSON.stringify(s));
+    } catch (e) { console.error("rev 9 update failed", e); }
   }
   return { ...DEFAULT_SETTINGS, ...s };
 }

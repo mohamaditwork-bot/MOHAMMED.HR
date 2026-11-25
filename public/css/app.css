@@ -586,3 +586,7 @@ tbody tr:hover .row-acts { opacity: 1; }
   .pdoc .report-sign { break-inside: avoid; margin-top: 22px; }
   .pdoc .ad-sigs { break-inside: avoid; }
 }
+
+/* New appraisal: criteria preview */
+.apr-crit { background: var(--surface-2); border-radius: 10px; padding: 10px 14px; font-size: 13px; }
+.apr-crit ol { margin: 6px 0 0; padding-inline-start: 20px; line-height: 1.8; }

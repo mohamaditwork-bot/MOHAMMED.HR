@@ -27,7 +27,8 @@ function info(d) {
   return `<div class="card sign-emp"><div><span>الموظف / Employee</span><b>${esc(e.name_ar)}</b>${e.name_en && e.name_en !== e.name_ar ? `<small>${esc(e.name_en)}</small>` : ""}</div>
     <div><span>المسمى / Position</span><b>${esc(e.job_title || "—")}</b></div>
     <div><span>القسم / Department</span><b>${esc(e.department || "—")}</b></div>
-    <div><span>الفترة / Period</span><b>${esc(d.period || "—")}</b></div></div>`;
+    <div><span>الفترة / Period</span><b>${esc(d.period || "—")}</b></div>${d.criteria_name ? `
+    <div><span>النموذج / Form</span><b>${esc(d.criteria_name)}</b></div>` : ""}</div>`;
 }
 
 function sigBlock(label, name) {

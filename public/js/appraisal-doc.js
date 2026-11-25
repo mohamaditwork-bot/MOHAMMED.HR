@@ -26,7 +26,7 @@ export function renderDoc(v) {
     ${sig ? `<img src="${esc(sig)}" alt="signature">` : `<div class="ad-sig-empty">—</div>`}
     <div><b>${esc(name || "")}</b></div><div class="small muted">${esc(dt(at))}</div></div>`;
   return `<div class="report-doc appraisal-doc">
-    <div class="report-head"><img src="/logo-navy.png" alt="Novotel"><div><b>نموذج تقييم الأداء وتجديد العقد</b><span>Performance Appraisal &amp; Contract Renewal</span></div>
+    <div class="report-head"><img src="/logo-navy.png" alt="Novotel"><div><b>نموذج تقييم الأداء وتجديد العقد</b><span>Performance Appraisal &amp; Contract Renewal${v.criteria_name ? ` — ${esc(v.criteria_name)}` : ""}</span></div>
       <div class="rmeta">${v.id ? `رقم النموذج: AP-${esc(v.id)}<br>` : ""}الفترة / Period: <b>${esc(v.period || "—")}</b></div></div>
     <table class="rtable ad-info"><tbody>
       <tr><th>اسم الموظف / Employee</th><td>${esc(e.name_ar || "")}${e.name_en && e.name_en !== e.name_ar ? `<br><small>${esc(e.name_en)}</small>` : ""}</td><th>الرقم الوظيفي / Emp. No</th><td>${esc(e.emp_no || "—")}</td></tr>
