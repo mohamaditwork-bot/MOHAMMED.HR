@@ -278,7 +278,10 @@ async function users(req, env) {
 async function all(req, env) {
   const u = await requireUser(env, req);
   if (u instanceof Response) return u;
-  return json({ ...(await loadAll(env)), settings: await getSettings(env) });
+  const data = await loadAll(env);
+  // Signing links act as signatures — only people who may edit get them.
+  if (!(u.role === "admin" || u.role === "editor")) for (const a of data.appraisals || []) { a.token_mgr = null; a.token_emp = null; }
+  return json({ ...data, settings: await getSettings(env) });
 }
 
 async function rows(req, env) {
@@ -494,8 +497,11 @@ async function alertsNow(req, env) {
 
 // Called daily by Vercel Cron (Authorization: Bearer CRON_SECRET).
 async function cron(req, env) {
-  const auth = req.headers.get("authorization") || "";
-  if (!env.CRON_SECRET || auth !== `Bearer ${env.CRON_SECRET}`) return json({ error: "unauthorized" }, 401);
+  const auth = new TextEncoder().encode(req.headers.get("authorization") || "");
+  const want = new TextEncoder().encode(`Bearer ${env.CRON_SECRET || ""}`);
+  let diff = auth.length ^ want.length;
+  for (let i = 0; i < want.length; i++) diff |= (auth[i] || 0) ^ want[i];
+  if (!env.CRON_SECRET || diff !== 0) return json({ error: "unauthorized" }, 401);
   const st = await getSettings(env);
   let renew = null;
   if (st.contract_autorenew) {
