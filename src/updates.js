@@ -502,8 +502,13 @@ H.master = async (db, wb) => {
     if (!e) continue;
     for (const [type, v] of [["health", g(/^baladya card/)], ["iqama", g(/^iqama expiry/)], ["ajeer", g(/^ajeer expiry/)]]) {
       const d = xdate(v);
-      // Only fill a missing date or move it forward — Muqeem/renewals may already hold a newer one.
-      if (d) { const old = await docExpiry(db, e.id, type); if (!old || type !== "iqama" || d > old) { await upsertDoc(db, e.id, type, { expiry: d }); stat.docs++; } }
+      // Only fill a missing date or move it forward — Muqeem, Ajeer or a correction may already hold a newer one.
+      if (d) {
+        const cur = (await db.query("SELECT expiry_date, details FROM documents WHERE employee_id = $1 AND doc_type = $2", [e.id, type]))[0];
+        const old = cur?.expiry_date instanceof Date ? cur.expiry_date.toISOString().slice(0, 10) : cur?.expiry_date ? String(cur.expiry_date).slice(0, 10) : null;
+        const manual = (typeof cur?.details === "string" ? JSON.parse(cur.details || "{}") : cur?.details || {}).manual;
+        if (!manual && (!old || d > old)) { await upsertDoc(db, e.id, type, { expiry: d }); stat.docs++; }
+      }
     }
     nCasual++;
   }
@@ -587,8 +592,13 @@ H.fixes = async (db, wb) => {
       const type = FIX_DOCS[field] || field;
       const d = anyDate(val);
       if (!d) { out.push(`❔ ${nm(e)}: تاريخ ${field} غير مفهوم («${val ?? ""}»)`); continue; }
-      await upsertDoc(db, e.id, type, { expiry: d });
-      out.push(`📄 ${nm(e)}: انتهاء ${field} ← ${d}`);
+      const number = txt(r["رقم الوثيقة"]), issue = anyDate(r["تاريخ الإصدار"]);
+      // A date confirmed by hand (from the official document) is kept even if a later Master file says otherwise.
+      const prev = (await db.query("SELECT details FROM documents WHERE employee_id = $1 AND doc_type = $2", [e.id, type]))[0]?.details;
+      const det = { ...(typeof prev === "string" ? JSON.parse(prev || "{}") : prev || {}), manual: true, manual_note: why || null };
+      delete det.pending;
+      await upsertDoc(db, e.id, type, { expiry: d, number, issue, details: det });
+      out.push(`📄 ${nm(e)}: انتهاء ${field} ← ${d}${number ? ` (${number})` : ""}`);
     } else if (act === "عدم تجديد") {
       const c = (await db.query("SELECT id, details FROM documents WHERE employee_id = $1 AND doc_type = 'contract'", [e.id]))[0];
       const det = { ...(typeof c?.details === "string" ? JSON.parse(c.details || "{}") : c?.details || {}), no_renew: true, no_renew_reason: why || "مغادر" };
