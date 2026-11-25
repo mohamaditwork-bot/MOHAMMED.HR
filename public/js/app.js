@@ -27,6 +27,9 @@ const tableState = {};
 
 const canEdit = () => ME && (ME.role === "editor" || ME.role === "admin");
 const isAdmin = () => ME && ME.role === "admin";
+// Read-only account limited to contractor labour: only these pages (the server sends labour data only).
+const laborOnly = () => ME && ME.role === "labor_viewer";
+const LABOR_PAGES = ["labor", "documents", "insurance", "dependents", "leaves"];
 const settings = () => ({ ...DEFAULT_SETTINGS, ...(D?.settings || {}) });
 
 async function api(path, opts = {}) {
@@ -129,8 +132,10 @@ function renderNav() {
   let h = "";
   for (const [g, items, adminOnly] of NAV) {
     if (adminOnly && !isAdmin()) continue;
+    const shown = laborOnly() ? items.filter((k) => LABOR_PAGES.includes(k)) : items;
+    if (!shown.length) continue;
     h += `<div class="nav-group">${esc(t(g))}</div>`;
-    for (const k of items) {
+    for (const k of shown) {
       const c = counts[k];
       const badge = c ? `<span class="badge ${k === "documents" || k === "tasks" || k === "leaves" ? "alert" : ""}">${c}</span>` : "";
       h += `<a href="#${k}" data-k="${k}">${icon(k)}<span>${esc(t("p." + k))}</span>${badge}</a>`;
@@ -162,6 +167,7 @@ function paintChrome() {
 const PAGES = {};
 function currentPage() {
   const k = (location.hash || "#dashboard").slice(1).split("/")[0];
+  if (laborOnly()) return LABOR_PAGES.includes(k) && PAGES[k] ? k : "labor";
   if (["settings", "users", "audit"].includes(k) && !isAdmin()) return "dashboard";
   return PAGES[k] ? k : "dashboard";
 }
@@ -889,9 +895,9 @@ PAGES.documents = () => {
   const rows = D.documents
     .filter((d) => EMP.has(d.employee_id))
     .map((d) => ({ ...d, s: docStatus(d, st), e: EMP.get(d.employee_id) }));
-  const kind = tableState.docsKind === "labor" ? "labor" : "staff";
+  const kind = tableState.docsKind === "labor" || laborOnly() ? "labor" : "staff";
   const bad = (k) => rows.filter((r) => groupOf(r.e) === k && (r.s.status === "expired" || r.s.status === "near")).length;
-  const tabs = ["staff", "labor"];
+  const tabs = laborOnly() ? ["labor"] : ["staff", "labor"];
   $("#view").innerHTML = head(t("p.documents"), `${t("set.iqama")} ${st.iqama} • ${t("set.contracts")} ${st.contracts} • ${t("set.docs")} ${st.docs} ${t("days")}`,
     `${canEdit() ? `<button class="btn ghost" id="renewNow">🔁 ${esc(t("rn.btn").replace("{n}", st.contract_renew_days ?? 75))}</button><button class="btn" id="addDoc">+ ${esc(t("doc.add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) +
     `<div class="tabs" id="docKind">${tabs.map((k) => `<button class="tab ${k === kind ? "on" : ""}" data-k="${k}">${esc(t(GROUP_LABEL[k]))} <span class="pill ${bad(k) ? "s-expired" : "s-ok"}">${bad(k)}</span></button>`).join("")}</div><div class="card" id="tb"></div>`;
@@ -1535,7 +1541,7 @@ function userForm(u, draw) {
     <div class="body"><div class="form-grid">
       <div><label class="fl">${esc(t("u.id"))}</label><input class="input" id="uid" value="${esc(u?.id || "")}" ${u ? "disabled" : ""} dir="ltr" inputmode="numeric"></div>
       <div><label class="fl">${esc(t("u.name"))}</label><input class="input" id="un" value="${esc(u?.name || "")}"></div>
-      <div><label class="fl">${esc(t("u.role"))}</label><select class="input" id="ur">${["viewer", "editor", "admin"].map((r) => `<option value="${r}" ${u?.role === r ? "selected" : ""}>${esc(t("role." + r))}</option>`).join("")}</select></div>
+      <div><label class="fl">${esc(t("u.role"))}</label><select class="input" id="ur">${["labor_viewer", "viewer", "editor", "admin"].map((r) => `<option value="${r}" ${u?.role === r ? "selected" : ""}>${esc(t("role." + r))}</option>`).join("")}</select></div>
       <div><label class="fl">${esc(t("u.pw"))}</label><input class="input" id="up" dir="ltr" autocomplete="new-password"></div></div><p class="msg err" id="ue"></p></div>
     <footer>${u && u.id !== ME.id ? `<button class="btn danger sm" id="udel" style="margin-inline-end:auto">${esc(t("delete"))}</button>` : ""}${u?.twofa ? `<button class="btn ghost sm" id="u2fa">📱 ${esc(t("sec.reset2fa"))}</button>` : ""}<button class="btn ghost" data-close>${esc(t("cancel"))}</button><button class="btn" id="us">${esc(t("save"))}</button></footer>`, "sm");
   $("#uid", m.root).addEventListener("change", () => {

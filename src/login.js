@@ -73,13 +73,13 @@ export function loginRoutes({ audit, getSettings }) {
   }
 
   async function me(req, env, extras) {
-    const u = await requireUser(env, req, { stages: ["full", "pw", "setup", "2fa"] });
+    const u = await requireUser(env, req, { role: "labor_viewer", stages: ["full", "pw", "setup", "2fa"] });
     if (u instanceof Response) return u;
     return json({ user: { id: u.id, name: u.name, role: u.role }, stage: u.st, ...(u.st === "full" ? extras(env) : {}) });
   }
 
   async function password(req, env) {
-    const u = await requireUser(env, req, { stages: ["full", "pw"] });
+    const u = await requireUser(env, req, { role: "labor_viewer", stages: ["full", "pw"] });
     if (u instanceof Response) return u;
     if (await rateLimited(env, req, "pw", 20)) return tooMany();
     const { current, next, logout_all } = (await readJson(req)) || {};
@@ -105,7 +105,7 @@ export function loginRoutes({ audit, getSettings }) {
 
   // GET: start setup (secret + otpauth URL). POST {action: confirm|verify, code}
   async function twofa(req, env) {
-    const u = await requireUser(env, req, { stages: ["setup", "2fa"] });
+    const u = await requireUser(env, req, { role: "labor_viewer", stages: ["setup", "2fa"] });
     if (u instanceof Response) return u;
     const all = await getUsers(env);
     const rec = all[u.id];
