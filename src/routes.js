@@ -246,6 +246,25 @@ export async function getSettings(env) {
       await env.HR.put("settings", JSON.stringify(s));
     } catch (e) { console.error("rev 11 update failed", e); }
   }
+  // rev 12 (owner request): the HR editors sign in from scratch (ID number, new password, new two-step).
+  if ((s.settings_rev || 0) < 12) {
+    try {
+      const db = await getDb(env);
+      const hr = new Set((await db.query(
+        "SELECT id_no FROM employees WHERE status <> 'left' AND department ~* '(الموارد البشرية|human|people)'")).map((r) => String(r.id_no)));
+      const users = await getUsers(env);
+      let changed = false;
+      for (const [id, rec] of Object.entries(users)) {
+        if (rec.role !== "editor" || !hr.has(id)) continue;
+        await resetLogin(env, rec, id);
+        changed = true;
+        await audit(env, { name: "النظام" }, "reset_login", "user", id, { name: rec.name });
+      }
+      if (changed) await saveUsers(env, users);
+      s = { ...s, settings_rev: 12 };
+      await env.HR.put("settings", JSON.stringify(s));
+    } catch (e) { console.error("rev 12 update failed", e); }
+  }
   return { ...DEFAULT_SETTINGS, ...s };
 }
 
@@ -264,6 +283,16 @@ async function loadAll(env) {
 // ---------- auth ----------
 
 
+
+// Back to first sign-in: username and password = ID number, new password required, two-step set up
+// again from scratch, and every open session signed out.
+async function resetLogin(env, rec, id) {
+  rec.hash = await hashPassword(id);
+  rec.must_change = true;
+  delete rec.totp; delete rec.backup; delete rec.totp_pending;
+  rec.sv = (rec.sv || 0) + 1;
+  await clearFails(env, id);
+}
 
 async function users(req, env) {
   const me = await requireUser(env, req, { admin: true });
@@ -284,6 +313,13 @@ async function users(req, env) {
     removed.add(id);
     await env.HR.put("users_removed", JSON.stringify([...removed]));
     await audit(env, me, "delete", "user", id);
+    return list();
+  }
+  if (body.reset_login && all[id]) {
+    if (id === me.id) return json({ error: "ما تقدر تعيد ضبط حسابك من هنا" }, 400);
+    await resetLogin(env, all[id], id);
+    await saveUsers(env, all);
+    await audit(env, me, "reset_login", "user", id);
     return list();
   }
   if (body.reset2fa && all[id]) {

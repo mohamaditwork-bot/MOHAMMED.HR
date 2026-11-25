@@ -1226,7 +1226,8 @@ const ACT = {
   manager_sign: ["وقّع التقييم كمدير", "Signed as manager"], employee_sign: ["وقّع التقييم كموظف", "Signed as employee"],
   renew_contracts: ["جدّد العقود", "Renewed contracts"], renew_contract: ["جدّد عقد", "Renewed a contract"], auto_renew: ["تجديد تلقائي للعقود", "Automatic contract renewal"],
   renew_link: ["جدّد رابط التقييم", "Renewed an appraisal link"], send_alerts: ["أرسل تنبيهات البريد", "Sent email alerts"],
-  backup_download: ["نزّل نسخة احتياطية", "Downloaded a backup"], reset2fa: ["أعاد ضبط التحقق لمستخدم", "Reset a user's two-step"],
+  backup_download: ["نزّل نسخة احتياطية", "Downloaded a backup"], reset2fa: ["أعاد ضبط التحقق لمستخدم", "Reset a user's two-step"], reset_2fa: ["أعاد ضبط التحقق لمستخدم", "Reset a user's two-step"],
+  reset_login: ["أعاد ضبط الدخول لمستخدم (من جديد)", "Reset a user's sign-in"],
   twofa_enabled: ["فعّل التحقق بخطوتين", "Turned on two-step"],
 };
 const ENT = {
@@ -1543,7 +1544,7 @@ function userForm(u, draw) {
       <div><label class="fl">${esc(t("u.name"))}</label><input class="input" id="un" value="${esc(u?.name || "")}"></div>
       <div><label class="fl">${esc(t("u.role"))}</label><select class="input" id="ur">${["labor_viewer", "viewer", "editor", "admin"].map((r) => `<option value="${r}" ${u?.role === r ? "selected" : ""}>${esc(t("role." + r))}</option>`).join("")}</select></div>
       <div><label class="fl">${esc(t("u.pw"))}</label><input class="input" id="up" dir="ltr" autocomplete="new-password"></div></div><p class="msg err" id="ue"></p></div>
-    <footer>${u && u.id !== ME.id ? `<button class="btn danger sm" id="udel" style="margin-inline-end:auto">${esc(t("delete"))}</button>` : ""}${u?.twofa ? `<button class="btn ghost sm" id="u2fa">📱 ${esc(t("sec.reset2fa"))}</button>` : ""}<button class="btn ghost" data-close>${esc(t("cancel"))}</button><button class="btn" id="us">${esc(t("save"))}</button></footer>`, "sm");
+    <footer>${u && u.id !== ME.id ? `<button class="btn danger sm" id="udel" style="margin-inline-end:auto">${esc(t("delete"))}</button>` : ""}${u?.twofa ? `<button class="btn ghost sm" id="u2fa">📱 ${esc(t("sec.reset2fa"))}</button>` : ""}${u && u.id !== ME.id ? `<button class="btn ghost sm" id="urel" title="${esc(t("sec.relogin.t"))}">🔄 ${esc(t("sec.relogin"))}</button>` : ""}<button class="btn ghost" data-close>${esc(t("cancel"))}</button><button class="btn" id="us">${esc(t("save"))}</button></footer>`, "sm");
   $("#uid", m.root).addEventListener("change", () => {
     const e = D.employees.find((x) => x.id_no === $("#uid", m.root).value.trim());
     if (e && !$("#un", m.root).value) $("#un", m.root).value = e.name_ar;
@@ -1555,6 +1556,10 @@ function userForm(u, draw) {
       draw((await api("/api/users", { method: "POST", body })).users);
       m.close(); toast(t("saved"));
     } catch (e) { $("#ue", m.root).textContent = e.message; }
+  });
+  $("#urel", m.root)?.addEventListener("click", async () => {
+    if (!confirm(t("sec.relogin.q").replace("{n}", u.name))) return;
+    try { draw((await api("/api/users", { method: "POST", body: { id: u.id, reset_login: true } })).users); m.close(); toast(t("saved")); } catch (e) { $("#ue", m.root).textContent = e.message; }
   });
   $("#u2fa", m.root)?.addEventListener("click", async () => {
     if (!confirm(t("sec.reset2fa.q"))) return;
