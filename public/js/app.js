@@ -74,6 +74,9 @@ const movedTag = (e) => (isMoved(e) ? ` <span class="pill s-info" title="${esc(t
 const empName = (e) => (e ? (L() === "en" && e.name_en ? e.name_en : e.name_ar) : "");
 const docLabel = (k) => (DOC_TYPES[k] ? DOC_TYPES[k][L()] : k);
 const stPill = (s) => `<span class="pill s-${s}">${esc(t("st." + s))}</span>`;
+// «قيد الإصدار» with its reason (e.g. «فترة تجربة 7 أيام — من 21/11»).
+const pendingNote = (d) => { try { return (typeof d?.details === "string" ? JSON.parse(d.details || "{}") : d?.details || {}).pending_note || ""; } catch { return ""; } };
+const docPill = (d, s) => stPill(s) + (s === "pending" && pendingNote(d) ? ` <span class="muted small">${esc(pendingNote(d))}</span>` : "");
 const daysCell = (d) => (d === null || d === undefined ? "" : `<span class="num ${d < 0 ? "d-exp" : ""}">${d}</span>`);
 
 // ================= icons =================
@@ -548,7 +551,7 @@ function printProfile(id) {
   const sections = [
     [t("details"), info],
     [t("p.documents"), tbl([t("doc.type"), t("doc.number"), t("doc.issue"), t("doc.expiry"), t("doc.days"), t("doc.status")],
-      docs.map(({ d, s }) => [esc(docLabel(d.doc_type)), `<span class="num">${esc(d.number || "")}</span>`, `<span class="num">${esc(fmtDate(d.issue_date))}</span>`, `<span class="num">${esc(fmtDate(s.expiry || d.expiry_date))}</span>`, `<span class="num">${s.days ?? ""}</span>`, profileOnly(d.doc_type) ? esc(docLabel(d.doc_type)) : stPill(s.status)]))],
+      docs.map(({ d, s }) => [esc(docLabel(d.doc_type)), `<span class="num">${esc(d.number || "")}</span>`, `<span class="num">${esc(fmtDate(d.issue_date))}</span>`, `<span class="num">${esc(fmtDate(s.expiry || d.expiry_date))}</span>`, `<span class="num">${s.days ?? ""}</span>`, profileOnly(d.doc_type) ? esc(docLabel(d.doc_type)) : docPill(d, s.status)]))],
     [t("p.leaves"), tbl([f("leave_type"), f("start_date"), f("end_date"), f("days"), f("status")],
       D.leaves.filter((l) => l.employee_id === id).map((l) => [esc(t("lv." + l.leave_type)) + (l.outside_ksa ? " ✈️" : ""), esc(fmtDate(l.start_date)), esc(fmtDate(l.end_date)), fmtNum(l.days), esc(t("ls." + l.status))]))],
     [t("p.movements"), tbl([f("move_date"), f("move_type"), f("from_value"), f("to_value"), f("notes")],
@@ -812,7 +815,7 @@ function openProfile(id, tab) {
       <div data-pane="docs" class="hidden">
         ${canEdit() ? `<button class="btn sm no-print" id="pAddDoc" style="margin-bottom:10px">+ ${esc(t("doc.add"))}</button>` : ""}
         <div class="tbl compact"><table><thead><tr><th>${esc(t("doc.type"))}</th><th>${esc(t("doc.number"))}</th><th>${esc(t("doc.issue"))}</th><th>${esc(t("doc.expiry"))}</th><th class="num">${esc(t("doc.days"))}</th><th>${esc(t("doc.status"))}</th></tr></thead>
-        <tbody>${docs.map((d) => `<tr class="click" data-doc="${d.id}"><td>${esc(docLabel(d.doc_type))}</td><td class="num">${esc(d.number || "")}</td><td class="num">${esc(fmtDate(d.issue_date))}</td><td class="num">${esc(fmtDate(d.s.expiry || d.expiry_date))}</td><td class="num">${profileOnly(d.doc_type) ? "" : daysCell(d.s.days)}</td><td>${profileOnly(d.doc_type) ? `<span class="pill s-expired">✈️ ${esc(docLabel(d.doc_type))}</span>` : stPill(d.s.status)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
+        <tbody>${docs.map((d) => `<tr class="click" data-doc="${d.id}"><td>${esc(docLabel(d.doc_type))}</td><td class="num">${esc(d.number || "")}</td><td class="num">${esc(fmtDate(d.issue_date))}</td><td class="num">${esc(fmtDate(d.s.expiry || d.expiry_date))}</td><td class="num">${profileOnly(d.doc_type) ? "" : daysCell(d.s.days)}</td><td>${profileOnly(d.doc_type) ? `<span class="pill s-expired">✈️ ${esc(docLabel(d.doc_type))}</span>` : docPill(d, d.s.status)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
       </div>
       <div data-pane="leaves" class="hidden">
         <div class="kv" style="margin-bottom:12px"><div><span>${esc(t("lv.entitled"))}</span><b>${bal.entitled}</b></div><div><span>${esc(t("lv.used"))}</span><b>${bal.used}</b></div><div><span>${esc(t("lv.remaining"))}</span><b class="${bal.remaining < 0 ? "d-exp" : ""}">${bal.remaining}</b></div></div>
@@ -904,7 +907,7 @@ PAGES.documents = () => {
       { k: "number", label: t("doc.number"), num: true },
       { k: "expiry", label: t("doc.expiry"), num: true, get: (r) => r.s.expiry || r.expiry_date },
       { k: "days", label: t("doc.days"), num: true, get: (r) => r.s.days, render: (r) => (r.s.status === "used" ? "—" : daysCell(r.s.days)) },
-      { k: "status", label: t("doc.status"), get: (r) => t("st." + r.s.status), render: (r) => stPill(r.s.status) + (r.doc_type === "contract" && (r.s.status === "near" || r.s.status === "expired") ? (renewalReady(r, (D.appraisals || []).filter((a) => a.employee_id === r.employee_id), D.attachments || []) ? ` <span class="pill s-ok" title="${esc(t("rn.ready.t"))}">📝 ${esc(t("rn.ready"))}</span>` : leavingReason(r) ? "" : ` <span class="pill s-near">⚠️ ${esc(t("rn.noform"))}</span>`) : "") },
+      { k: "status", label: t("doc.status"), get: (r) => t("st." + r.s.status) + (r.s.status === "pending" && pendingNote(r) ? ` — ${pendingNote(r)}` : ""), render: (r) => docPill(r, r.s.status) + (r.doc_type === "contract" && (r.s.status === "near" || r.s.status === "expired") ? (renewalReady(r, (D.appraisals || []).filter((a) => a.employee_id === r.employee_id), D.attachments || []) ? ` <span class="pill s-ok" title="${esc(t("rn.ready.t"))}">📝 ${esc(t("rn.ready"))}</span>` : leavingReason(r) ? "" : ` <span class="pill s-near">⚠️ ${esc(t("rn.noform"))}</span>`) : "") },
       { k: "act", label: "", noExport: true, get: () => "", render: (r) => canEdit() ? `<span class="row-acts">${!r.s.expiry || r.s.status === "expired" || r.s.status === "pending" ? `<button class="btn ${r.s.status === "pending" ? "" : "ghost"} sm" data-pend="${r.id}" title="${esc(t("pd.t"))}">📨 ${esc(t(r.s.status === "pending" ? "pd.off" : "pd.on"))}</button>` : ""}<button class="btn ghost sm" data-renew="${r.id}">${esc(t("doc.renew"))}</button>${r.doc_type === "contract" ? `<button class="btn ${r.details?.no_renew ? "danger" : "ghost"} sm" data-leave="${r.id}" title="${esc(t("rn.leave.t"))}">🚪 ${esc(r.details?.no_renew ? t("rn.leaving") : t("rn.leave"))}</button>` : ""}</span>` : "" },
     ],
     filters: [{ k: "type", label: t("filter.type"), get: (r) => docLabel(r.doc_type) }, { k: "where", label: kind !== "staff" ? f("company") : f("department"), get: (r) => (kind === "staff" ? r.e.department : r.e.company) }],
@@ -1308,7 +1311,7 @@ async function platformOk(id) {
   const p = { ...(e.platform || {}) };
   for (const k of PLAT_MARKS) if (p[k] === "✖" || p[k] === "؟" || (!p[k] && ["qiwa_staff", "qiwa_contract", "gosi"].includes(k))) p[k] = "✔";
   p.result = "مطابق";
-  p.note = `${t("pl.ok.note")} — ${ME?.name || ""} ${new Date().toISOString().slice(0, 10)}`;
+  delete p.note; // matched rows carry no note
   try { await api("/api/rows?table=employees", { method: "PUT", body: { id, platform: p } }); toast(t("saved")); await refresh(); } catch (err) { toast(err.message, true); }
 }
 

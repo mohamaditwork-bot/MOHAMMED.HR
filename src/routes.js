@@ -209,6 +209,15 @@ export async function getSettings(env) {
       await env.HR.put("settings", JSON.stringify(s));
     } catch (e) { console.error("rev 9 update failed", e); }
   }
+  // rev 10 (owner request): platform rows that are matched (مطابق) carry no note.
+  if ((s.settings_rev || 0) < 10) {
+    try {
+      const db = await getDb(env);
+      await db.query("UPDATE employees SET platform = platform - 'note' WHERE platform->>'result' = 'مطابق' AND platform ? 'note'");
+      s = { ...s, settings_rev: 10 };
+      await env.HR.put("settings", JSON.stringify(s));
+    } catch (e) { console.error("rev 10 update failed", e); }
+  }
   return { ...DEFAULT_SETTINGS, ...s };
 }
 
