@@ -10,7 +10,7 @@ import { importWorkbook } from "./importer.js";
 import { detectWorkbook, applyUpdateFile, natAr, addLeftIds } from "./updates.js";
 import { signRoute, appraisalsRoute } from "./appraisals.js";
 import { toTrash, trashRoute } from "./trash.js";
-import { renewContracts, generalManager } from "./renewals.js";
+import { renewContracts, generalManager, RENEW_BASIS } from "./renewals.js";
 import { withSecrets, saveSecrets } from "./secrets.js";
 import { loginRoutes, rateLimited } from "./login.js";
 import { verifyTotp } from "./totp.js";
@@ -173,6 +173,24 @@ export async function getSettings(env) {
       s = { ...s, settings_rev: 7 };
       await env.HR.put("settings", JSON.stringify(s));
     } catch (e) { console.error("publish clean-up failed", e); }
+  }
+  // rev 8 (owner request): renewals were made because each employee's direct manager filled the renewal
+  // form — the history says so instead of naming anyone.
+  if ((s.settings_rev || 0) < 8) {
+    try {
+      const db = await getDb(env);
+      await db.query(
+        "UPDATE movements SET notes = $1 WHERE move_type = 'contract' AND notes LIKE 'تجديد عقد تلقائي (سنة) —%'",
+        [`تجديد عقد تلقائي (سنة) — ${RENEW_BASIS.form}`]);
+      await db.query(
+        `UPDATE documents SET details = jsonb_set(details, '{renewals}',
+           (SELECT jsonb_agg(jsonb_set(x, '{by}', to_jsonb(CASE x->>'basis' WHEN 'appraisal' THEN $2::text WHEN 'file' THEN $3::text ELSE $1::text END)))
+              FROM jsonb_array_elements(details->'renewals') x))
+         WHERE doc_type = 'contract' AND jsonb_typeof(details->'renewals') = 'array' AND jsonb_array_length(details->'renewals') > 0`,
+        [RENEW_BASIS.form, RENEW_BASIS.appraisal, RENEW_BASIS.file]);
+      s = { ...s, settings_rev: 8 };
+      await env.HR.put("settings", JSON.stringify(s));
+    } catch (e) { console.error("renewal wording update failed", e); }
   }
   return { ...DEFAULT_SETTINGS, ...s };
 }

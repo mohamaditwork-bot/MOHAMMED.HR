@@ -9,6 +9,14 @@ const addDays = (d, n) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x
 const addYear = (d) => { const x = new Date(d + "T00:00:00Z"); x.setUTCFullYear(x.getUTCFullYear() + 1); return x.toISOString().slice(0, 10); };
 const parse = (v) => (typeof v === "string" ? JSON.parse(v || "{}") : v || {});
 
+// Why a contract was renewed — written in the movement note and the renewal history (no person's name).
+export const RENEW_BASIS = {
+  form: "بناءً على نموذج التجديد من المدير المباشر",
+  appraisal: "بناءً على قرار التقييم",
+  file: "بناءً على نموذج التجديد",
+  manual: "بقرار الموارد البشرية",
+};
+
 // The hotel's general manager, looked up from the data (no names in the code).
 export async function generalManager(db) {
   const r = await db.query(
@@ -33,8 +41,6 @@ export async function renewContracts(env, settings, user, { dryRun = false, forc
   const aprI = isoAt(apr), filesI = isoAt(files);
   const forced = new Set((force || []).map(Number));
   const renewed = [], skipped = [], needs = [];
-  // Contract renewals are approved in the name of the hotel's general manager (found by job title).
-  const approver = (await generalManager(db))?.name_ar || user?.name || "النظام";
   for (const d of docs) {
     const det = parse(d.details);
     const reason = leavingReason({ ...d, details: det }, apr.filter((a) => a.employee_id === d.employee_id));
@@ -48,13 +54,14 @@ export async function renewContracts(env, settings, user, { dryRun = false, forc
     renewed.push({ employee_id: d.employee_id, name: d.name_ar, from: exp, start, end, basis: ready || "manual" });
     if (dryRun) continue;
     const hist = Array.isArray(det.renewals) ? det.renewals : [];
-    hist.push({ old_issue: iso(d.issue_date), old_expiry: exp, new_expiry: end, at: today, by: approver, basis: ready || "manual", form: det.renewal || null });
+    const basis = ready || "manual";
+    hist.push({ old_issue: iso(d.issue_date), old_expiry: exp, new_expiry: end, at: today, by: RENEW_BASIS[basis] || RENEW_BASIS.manual, basis, form: det.renewal || null });
     const next = { ...det, renewals: hist };
     delete next.renewal; // the form is used; next year needs a new one
     await db.query("UPDATE documents SET issue_date = $1, expiry_date = $2, details = $3, updated_at = now() WHERE id = $4",
       [start, end, JSON.stringify(next), d.id]);
     await db.query("INSERT INTO movements (employee_id, move_type, move_date, from_value, to_value, notes) VALUES ($1,'contract',$2,$3,$4,$5)",
-      [d.employee_id, start, exp, end, `تجديد عقد تلقائي (سنة) — ${approver}`]);
+      [d.employee_id, start, exp, end, `تجديد عقد تلقائي (سنة) — ${RENEW_BASIS[basis] || RENEW_BASIS.manual}`]);
   }
   return { days, renewed, skipped, needs };
 }
