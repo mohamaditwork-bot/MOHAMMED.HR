@@ -61,7 +61,7 @@ export async function renewContracts(env, settings, user, { dryRun = false, forc
     await db.query("UPDATE documents SET issue_date = $1, expiry_date = $2, details = $3, updated_at = now() WHERE id = $4",
       [start, end, JSON.stringify(next), d.id]);
     await db.query("INSERT INTO movements (employee_id, move_type, move_date, from_value, to_value, notes) VALUES ($1,'contract',$2,$3,$4,$5)",
-      [d.employee_id, start, exp, end, `تجديد عقد تلقائي (سنة) — ${RENEW_BASIS[basis] || RENEW_BASIS.manual}`]);
+      [d.employee_id, start, exp, end, null]);
   }
   return { days, renewed, skipped, needs };
 }

@@ -193,6 +193,8 @@ ALTER TABLE audit ADD COLUMN IF NOT EXISTS ip text;
 ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS hr_sig text;
 ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS hr_name text;
 ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS hr_signed_at timestamptz;
+ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS criteria jsonb;
+ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS criteria_set text;
 
 CREATE TABLE IF NOT EXISTS trash (
   id serial PRIMARY KEY,
