@@ -52,6 +52,24 @@ async function insertRow(db, table, row) {
   await db.query(`INSERT INTO ${table} (${cols.join(",")}) VALUES (${ph.join(",")}) ON CONFLICT (id) DO NOTHING`, vals);
 }
 
+// Bring back an employee removed by mistake (by ID/iqama number): their latest full copy in the bin
+// is restored with everything that went with it, and any "left" markers for them are dropped.
+export async function restoreFromTrash(db, idNo) {
+  const rows = await db.query(
+    "SELECT id, data FROM trash WHERE entity = 'employees' AND data->'row'->>'id_no' = $1 ORDER BY deleted_at DESC", [String(idNo)]);
+  let restored = null;
+  for (const t of rows) {
+    const snap = typeof t.data === "string" ? JSON.parse(t.data) : t.data;
+    if (!snap?.marker && !restored) {
+      await insertRow(db, "employees", snap.row);
+      for (const c of [...CHILDREN, "attachments"]) for (const r of snap.related?.[c] || []) await insertRow(db, c, r);
+      restored = snap.row;
+    }
+    await db.query("DELETE FROM trash WHERE id = $1", [t.id]);
+  }
+  return restored;
+}
+
 // /api/trash — GET list, POST {id} restore, DELETE {id} purge (admin).
 export async function trashRoute(req, env, user, audit) {
   const db = await getDb(env);

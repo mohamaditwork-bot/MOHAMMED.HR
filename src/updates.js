@@ -3,7 +3,7 @@
 // the changes and returns a short report of what changed.
 import * as XLSXns from "xlsx";
 import { sheetRows } from "./parse.js";
-import { toTrash } from "./trash.js";
+import { toTrash, restoreFromTrash } from "./trash.js";
 
 const XLSX = XLSXns.SSF ? XLSXns : XLSXns.default;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -164,8 +164,27 @@ H.contracts = async (db, wb) => {
 H.casual = async (db, wb) => {
   const map = await people(db);
   const NAT = /(i|ese|ian|ani|ino)$/i;
+  const today = new Date().toISOString().slice(0, 10);
+  // "4/23/2026" (month first), "21/11/2026", "21/11/Trail" (on trial since that day) or an ISO date.
+  const cdate = (v) => {
+    const s = txt(v);
+    if (!s) return { d: null };
+    let d = null, trial = /trai?l/i.test(s);
+    let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (ISO.test(s.slice(0, 10))) d = s.slice(0, 10);
+    else if (m) { let [a, b] = [+m[1], +m[2]]; if (b > 12) [a, b] = [b, a]; d = `${m[3]}-${pad(b)}-${pad(a)}`; }
+    else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\//))) d = `${today.slice(0, 4)}-${pad(+m[2])}-${pad(+m[1])}`;
+    // A joining date far in the future is a typo in the year.
+    if (d && d > today && (Date.parse(d) - Date.parse(today)) / 864e5 > 60) d = `${+d.slice(0, 4) - 1}${d.slice(4)}`;
+    return { d, trial };
+  };
   const parse = (ws, left) => {
-    const rows = sheetRows(ws).slice(2);
+    const all = sheetRows(ws);
+    const hi = all.findIndex((r) => r.some((c) => /^joining date$/i.test(String(c ?? "").trim())));
+    const hdr = hi >= 0 ? all[hi].map((c) => String(c ?? "").trim().toLowerCase()) : null;
+    const col = (re) => (hdr ? hdr.findIndex((h) => re.test(h)) : -1);
+    const cJoin = col(/^joining date$/), cAjeer = col(/^ajeer (expiry )?date$/);
+    const rows = hi >= 0 ? all.slice(hi + 1) : all.slice(2);
     const out = [];
     for (const r of rows) {
       const name = txt(r[1]);
@@ -177,7 +196,9 @@ H.casual = async (db, wb) => {
       const nationality = ni >= 0 ? cells[ni] : null;
       const company = ni >= 0 ? cells.slice(ni + 1).find((c) => c && !/\d/.test(c) && !/^(yes|no)$/i.test(c)) : null;
       const mobile = r.map(txt).find((c) => c && /^5\d{8}/.test(c.replace(/\D/g, "")) && c.replace(/\D/g, "").length === 9);
-      out.push({ name, dept: txt(r[2]), pos: txt(r[3]), iqama, nationality, company, mobile: mobile ? mobile.replace(/\D/g, "") : null, join: dates[0] || null, ajeer: left ? null : dates[1] || null, reason: left ? txt(r[r.length - 1]) : null });
+      const jd = cJoin >= 0 ? cdate(r[cJoin]) : { d: dates[0] || null };
+      const ad = cAjeer >= 0 ? cdate(r[cAjeer]).d : dates[1] || null;
+      out.push({ name, dept: txt(r[2]), pos: txt(r[3]), iqama, nationality, company, mobile: mobile ? mobile.replace(/\D/g, "") : null, join: jd.d, trial: jd.trial, ajeer: left ? null : ad, reason: left ? txt(r[r.length - 1]) : null });
     }
     return out;
   };
@@ -188,6 +209,7 @@ H.casual = async (db, wb) => {
   for (const w of active) {
     if (!w.iqama) { out.push(`⚠️ ${w.name}: بدون رقم إقامة في الملف`); continue; }
     let e = map.get(w.iqama);
+    if (!e && (await removedByHand(db, w.iqama))) { out.push(`⏭ ${w.name} (${w.iqama}) سبق وانشال يدويًا — ما انضاف`); continue; }
     if (!e) {
       const r = await db.query(
         `INSERT INTO employees (kind, status, name_ar, name_en, id_no, nationality, company, department, job_title, mobile, join_date, notes)
@@ -203,12 +225,29 @@ H.casual = async (db, wb) => {
       updated++;
     }
     if (w.ajeer) await upsertDoc(db, e.id, "ajeer", { expiry: w.ajeer });
-    else out.push(`⚠️ ${w.name} (${w.iqama}) بدون تاريخ أجير`);
+    if (w.trial) {
+      // On the 7-day trial: iqama/Ajeer not registered yet — shown as «قيد الإصدار», not as missing.
+      const note = `فترة تجربة 7 أيام${w.join ? ` — من ${w.join.slice(8, 10)}/${w.join.slice(5, 7)}` : ""}`;
+      for (const t of w.ajeer ? ["iqama"] : ["iqama", "ajeer"]) {
+        if (await docExpiry(db, e.id, t)) continue;
+        await upsertDoc(db, e.id, t, { details: { pending: true, pending_note: note } });
+      }
+      out.push(`🕒 ${w.name} (${w.iqama}) — ${note}`);
+    } else if (!w.ajeer) out.push(`⚠️ ${w.name} (${w.iqama}) بدون تاريخ أجير`);
   }
   const stillActive = new Set(active.map((w) => w.iqama).filter(Boolean));
+  const nameKey = (n) => String(n || "").toLowerCase().replace(/[^a-z\u0600-\u06ff]/g, "");
+  const activeNames = new Set(active.map((w) => nameKey(w.name)));
   for (const w of left) {
     const e = w.iqama && !stillActive.has(w.iqama) && map.get(w.iqama);
     if (e && e.status !== "left") {
+      // Same name still on the current list (often with a mistyped iqama), or a document confirmed by hand
+      // (e.g. a renewed Ajeer): the leavers sheet is older than that — keep them and say so.
+      if (activeNames.has(nameKey(w.name))) { out.push(`⚠️ ${nm(e)} (${w.iqama}) في ورقة المغادرين بس اسمه في الكشف الحالي — ما انشال، تأكد من رقم إقامته`); continue; }
+      if ((await db.query("SELECT 1 FROM documents WHERE employee_id = $1 AND details->>'manual' = 'true' LIMIT 1", [e.id])).length) {
+        out.push(`⚠️ ${nm(e)} (${w.iqama}) في ورقة المغادرين بس عنده وثيقة مؤكدة حديثًا — ما انشال`);
+        continue;
+      }
       await toTrash(db, "employees", e.id, { name: "استيراد Casual — غادر" });
       await db.query("DELETE FROM employees WHERE id = $1", [e.id]);
       gone++;
@@ -392,6 +431,11 @@ export async function addLeftIds(db, ids) {
   for (const id of ids) if (id) all.add(String(id));
   await db.query("INSERT INTO kv(key, value) VALUES ('left_ids', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [JSON.stringify([...all])]);
 }
+export async function removeLeftIds(db, ids) {
+  const all = await leftIds(db);
+  for (const id of ids) all.delete(String(id));
+  await db.query("INSERT INTO kv(key, value) VALUES ('left_ids', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [JSON.stringify([...all])]);
+}
 async function removedByHand(db, id) {
   if ((await leftIds(db)).has(String(id))) return true;
   const r = await db.query("SELECT 1 FROM trash WHERE entity = 'employees' AND deleted_by = 'تصحيحات' AND data->'row'->>'id_no' = $1 LIMIT 1", [id]);
@@ -548,6 +592,8 @@ H.master = async (db, wb) => {
 //   متابعة         → open a follow-up task
 //   منقول          → moved to an outside company (kept with labor, labelled منقولين)
 //   إلغاء النقل    → undo «منقول»: back with the permanent staff
+//   إرجاع          → bring back someone removed by mistake (from the recycle bin) — later files may add them again
+//   تأمين          → medical insurance class of the employee (القيمة = A / B / C …)
 const FIX_FIELDS = { "الاسم عربي": "name_ar", "الاسم": "name_ar", "الاسم إنجليزي": "name_en", "الجوال": "mobile", "الإيميل": "email", "القسم": "department", "القطاع": "sector", "المسمى": "job_title", "المسمى الوظيفي": "job_title", "مهنة قوى": "qiwa_job", "مهنة الإقامة": "iqama_job", "الجنسية": "nationality", "الجنس": "gender", "الميلاد": "birth_date", "الانضمام": "join_date", "المباشرة": "start_date", "الدرجة": "grade", "الإجازة": "leave_days", "الأساسي": "basic_salary", "الراتب الأساسي": "basic_salary", "السكن": "housing", "النقل": "transport", "الإجمالي": "total_salary", "الراتب الإجمالي": "total_salary", "البنك": "bank", "الآيبان": "iban", "الشركة": "company", "الرقم الوظيفي": "emp_no", "ساعات العمل": "work_hours", "ملاحظات": "notes" };
 const FIX_DOCS = { "الإقامة": "iqama", "الجواز": "passport", "الشهادة الصحية": "health", "أجير": "ajeer", "رخصة العمل": "work_permit", "العقد": "contract", "التأمين": "insurance" };
 
@@ -564,6 +610,19 @@ H.fixes = async (db, wb) => {
     let val = r["القيمة"];
     const e = map.get(id);
     if (!act) continue;
+    if (act === "إرجاع") {
+      if (!/^[12]\d{9}$/.test(id)) { out.push(`❔ ${txt(r["الاسم"]) || id}: رقم الهوية غير صحيح`); continue; }
+      await removeLeftIds(db, [id]);
+      if (e) { out.push(`↩ ${nm(e)} (${id}) موجود في النظام`); done++; continue; }
+      const row = await restoreFromTrash(db, id);
+      if (row) {
+        const back = (await db.query("SELECT id, kind, status, name_ar, name_en, id_no, platform FROM employees WHERE id_no = $1", [id]))[0];
+        if (back) map.set(id, back);
+        out.push(`↩ ${row.name_ar || row.name_en || id} (${id}) رجع للنظام من السلة${why ? ` — ${why}` : ""}`);
+      } else out.push(`↩ ${txt(r["الاسم"]) || id} (${id}) انشال من قائمة المغادرين — ينضاف مع ملف العمالة أو Master Data`);
+      done++;
+      continue;
+    }
     if (!e && act === "حذف" && /^[12]\d{9}$/.test(id)) {
       // Not in the system (yet): remember the removal so later files never add them back.
       await addLeftIds(db, [id]);
@@ -628,13 +687,23 @@ H.fixes = async (db, wb) => {
       const base = String(cur).replace(/^(منقولين|طرف ثالث \(Third Party\))( — )?/, "").trim();
       await db.query("UPDATE employees SET kind = 'staff', company = $1, updated_at = now() WHERE id = $2", [base || null, e.id]);
       out.push(`↩ ${nm(e)}: مو منقول — رجع مع الموظفين الدائمين`);
+    } else if (act === "تأمين") {
+      const cls = txt(val)?.toUpperCase();
+      if (!cls) { out.push(`❔ ${nm(e)}: اكتب فئة التأمين في «القيمة»`); continue; }
+      const p = (await db.query("SELECT name_en, name_ar, gender, nationality, birth_date, mobile FROM employees WHERE id = $1", [e.id]))[0] || {};
+      await db.query(
+        `INSERT INTO insurance (employee_id, member_name, id_no, relation, class, gender, nationality, birth_date, mobile)
+         VALUES ($1,$2,$3,'الموظف',$4,$5,$6,$7,$8)
+         ON CONFLICT (id_no) DO UPDATE SET class = EXCLUDED.class, employee_id = EXCLUDED.employee_id`,
+        [e.id, p.name_en || p.name_ar || id, id, cls, p.gender, p.nationality, p.birth_date, p.mobile]);
+      out.push(`🩺 ${nm(e)}: فئة التأمين ← ${cls}`);
     } else if (act === "مطابقة صحيحة") {
       // Checked on every platform: everything is correct.
       const np = { ...((await db.query("SELECT platform FROM employees WHERE id = $1", [e.id]))[0]?.platform || {}) };
       for (const k of ["qiwa_staff", "qiwa_contract", "gosi"]) if (!np[k] || np[k] === "✖" || np[k] === "؟") np[k] = "✔";
       for (const k of ["muqeem", "work_permit"]) if (np[k] === "✖" || np[k] === "؟") np[k] = "✔";
       np.result = "مطابق";
-      np.note = why || "تم التحقق — كل شي صحيح";
+      delete np.note; // a matched row carries no note
       await db.query("UPDATE employees SET platform = $1, updated_at = now() WHERE id = $2", [JSON.stringify(np), e.id]);
       out.push(`✅ ${nm(e)}: مطابقة المنصات — كل شي صحيح`);
     } else if (act === "قيد الإصدار") {
