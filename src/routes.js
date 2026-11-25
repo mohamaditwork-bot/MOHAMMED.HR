@@ -218,6 +218,34 @@ export async function getSettings(env) {
       await env.HR.put("settings", JSON.stringify(s));
     } catch (e) { console.error("rev 10 update failed", e); }
   }
+  // rev 11 (owner request): read-only accounts for the General Manager (everything) and the housing
+  // supervisor (contractor labour only). Username = ID number, first password = ID number, which must be
+  // changed at first sign-in, then two-step verification is set up. A deleted account is never re-created.
+  if ((s.settings_rev || 0) < 11) {
+    try {
+      const db = await getDb(env);
+      const gm = await generalManager(db);
+      const hs = await db.query(
+        "SELECT id_no, name_ar, name_en FROM employees WHERE status <> 'left' AND kind = 'staff' AND job_title ~* 'housing\\s*supervisor'");
+      const want = [];
+      if (gm) want.push({ ...gm, role: "viewer" });
+      if (hs.length === 1) want.push({ ...hs[0], role: "labor_viewer" });
+      const users = await getUsers(env);
+      const removed = new Set((await env.HR.get("users_removed", "json")) || []);
+      let changed = false;
+      for (const p of want) {
+        const id = String(p.id_no || "");
+        if (!/^[12]\d{9}$/.test(id) || users[id] || removed.has(id)) continue;
+        const name = p.name_ar || p.name_en || id;
+        users[id] = { name, role: p.role, hash: await hashPassword(id), must_change: true, sv: 1 };
+        changed = true;
+        await audit(env, { name: "النظام" }, "create", "user", id, { name, role: p.role });
+      }
+      if (changed) await saveUsers(env, users);
+      s = { ...s, settings_rev: 11 };
+      await env.HR.put("settings", JSON.stringify(s));
+    } catch (e) { console.error("rev 11 update failed", e); }
+  }
   return { ...DEFAULT_SETTINGS, ...s };
 }
 
@@ -284,9 +312,27 @@ async function users(req, env) {
 }
 
 // ---------- data ----------
+// Contractor labour only (not permanent staff, not transferred «منقولين»), and only rows linked to them.
+// Anything not tied to a labourer (recruitment, Saudization rules, appraisals, storage...) is left out.
+const MOVED_CO = /^(منقولين|طرف ثالث)/;
+function laborOnly(data) {
+  const emps = (data.employees || []).filter((e) => e.kind === "labor" && !MOVED_CO.test(String(e.company || "").trim()));
+  const ids = new Set(emps.map((e) => e.id)), idNos = new Set(emps.map((e) => String(e.id_no)));
+  const out = { employees: emps, attachments: [], appraisals: [], storage: null };
+  for (const [t, rows] of Object.entries(data)) {
+    if (t in out || !Array.isArray(rows)) continue;
+    if (["documents", "dependents", "insurance", "leaves", "movements"].includes(t)) out[t] = rows.filter((r) => ids.has(r.employee_id));
+    else if (t === "tasks") out[t] = rows.filter((r) => r.id_no && idNos.has(String(r.id_no)));
+    else out[t] = [];
+  }
+  return out;
+}
+const publicSettings = (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !/email|key|secret|token/i.test(k)));
+
 async function all(req, env) {
-  const u = await requireUser(env, req);
+  const u = await requireUser(env, req, { role: "labor_viewer" });
   if (u instanceof Response) return u;
+  if (u.role === "labor_viewer") return json({ ...laborOnly(await loadAll(env)), settings: publicSettings(await getSettings(env)) });
   const data = await loadAll(env);
   // Signing links act as signatures — only people who may edit get them.
   if (!(u.role === "admin" || u.role === "editor")) for (const a of data.appraisals || []) { a.token_mgr = null; a.token_emp = null; }

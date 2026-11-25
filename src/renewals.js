@@ -20,7 +20,7 @@ export const RENEW_BASIS = {
 // The hotel's general manager, looked up from the data (no names in the code).
 export async function generalManager(db) {
   const r = await db.query(
-    `SELECT id, name_ar, name_en FROM employees
+    `SELECT id, id_no, name_ar, name_en FROM employees
       WHERE status <> 'left' AND (job_title ~* 'general\\s*manager' OR qiwa_job = 'مدير فندق' OR iqama_job = 'مدير فندق')
       ORDER BY (job_title ~* 'general\\s*manager') DESC, id LIMIT 1`);
   return r[0] || null;
