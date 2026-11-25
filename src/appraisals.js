@@ -151,12 +151,15 @@ export async function appraisalsRoute(req, env, user, audit) {
            FROM appraisals a JOIN employees e ON e.id = a.employee_id WHERE a.id = $1`, [id]);
       if (!r[0]) return json({ error: "غير موجود" }, 404);
       const v = publicView({ ...r[0], role: "hr" });
-      return json({ ...v, id, id_no: r[0].id_no, token_mgr: r[0].token_mgr, token_emp: r[0].token_emp, created_at: iso(r[0].created_at) });
+      const canSign = user.role === "admin" || user.role === "editor";
+      return json({ ...v, id, id_no: r[0].id_no, token_mgr: canSign ? r[0].token_mgr : null, token_emp: canSign ? r[0].token_emp : null, created_at: iso(r[0].created_at) });
     }
     const rows = await db.query(
       `SELECT id, employee_id, period, manager_name, manager_title, status, total, grade, decision, decision_note,
               manager_signed_at, employee_signed_at, hr_name, hr_signed_at, token_mgr, token_emp, expires_at, created_by, created_at
          FROM appraisals ORDER BY created_at DESC`);
+    // Signing links act as signatures — only people who may edit see them.
+    if (!(user.role === "admin" || user.role === "editor")) for (const r of rows) { r.token_mgr = null; r.token_emp = null; }
     return json({ rows: rows.map((r) => ({ ...r, manager_signed_at: iso(r.manager_signed_at), employee_signed_at: iso(r.employee_signed_at), hr_signed_at: iso(r.hr_signed_at), expires_at: iso(r.expires_at), created_at: iso(r.created_at) })) });
   }
   const body = await req.json().catch(() => null);

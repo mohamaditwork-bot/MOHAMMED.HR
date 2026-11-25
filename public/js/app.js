@@ -437,7 +437,8 @@ function printDoc({ title, subtitle = "", body, landscape = false, sign = true, 
   $("#printDoc").innerHTML = `<div class="report-doc pdoc">${raw ? "" : head}${body}${signs}</div>`;
   let ps = $("#printPage");
   if (!ps) { ps = document.createElement("style"); ps.id = "printPage"; document.head.appendChild(ps); }
-  const footer = `${t("print.page")} " counter(page) " / " counter(pages) "   •   ${hotelName()} — ${t("hr")}   •   ${t("print.conf")}`.replace(/\\/g, "");
+  const cssText = (v) => String(v).replace(/[\\"<>{}\n\r]/g, " ");
+  const footer = `${cssText(t("print.page"))} " counter(page) " / " counter(pages) "   •   ${cssText(hotelName())} — ${cssText(t("hr"))}   •   ${cssText(t("print.conf"))}`;
   ps.textContent = `@media print { @page { size: A4 ${landscape ? "landscape" : "portrait"}; margin: 12mm 10mm 15mm; @bottom-center { content: "${footer}"; font-size: 8pt; color: #666; } } }`;
   document.body.classList.add("printing-doc");
 }
@@ -1209,16 +1210,24 @@ const bindTaskTabs = () => $$("#taskTabs [data-tt]").forEach((b) => b.addEventLi
 
 // Who did what, anywhere on the site — readable feed built from the audit log.
 const ACT = {
-  create: "أضاف", update: "عدّل", delete: "حذف", restore: "استرجع من السلة", purge: "حذف نهائيًا", import: "رفع ملف",
-  login: "دخل الموقع", login_failed: "محاولة دخول خاطئة", logout_all: "خرج من كل الأجهزة", password_change: "غيّر كلمة المرور",
-  hr_sign: "اعتمد التقييم (الموارد البشرية)", manager_sign: "وقّع التقييم كمدير", employee_sign: "وقّع التقييم كموظف",
-  renew_contracts: "جدّد العقود", renew_contract: "جدّد عقد", renew_link: "جدّد رابط التقييم", send_alerts: "أرسل تنبيهات البريد",
-  backup_download: "نزّل نسخة احتياطية", reset2fa: "أعاد ضبط التحقق لمستخدم", twofa_enabled: "فعّل التحقق بخطوتين",
+  create: ["أضاف", "Added"], update: ["عدّل", "Edited"], delete: ["حذف", "Deleted"], restore: ["استرجع من السلة", "Restored from bin"],
+  purge: ["حذف نهائيًا", "Deleted permanently"], import: ["رفع ملف", "Uploaded a file"], login: ["دخل الموقع", "Signed in"],
+  login_failed: ["محاولة دخول خاطئة", "Failed sign-in"], logout_all: ["خرج من كل الأجهزة", "Signed out everywhere"],
+  password_change: ["غيّر كلمة المرور", "Changed password"], hr_sign: ["اعتمد التقييم (الموارد البشرية)", "HR-approved an appraisal"],
+  manager_sign: ["وقّع التقييم كمدير", "Signed as manager"], employee_sign: ["وقّع التقييم كموظف", "Signed as employee"],
+  renew_contracts: ["جدّد العقود", "Renewed contracts"], renew_contract: ["جدّد عقد", "Renewed a contract"], auto_renew: ["تجديد تلقائي للعقود", "Automatic contract renewal"],
+  renew_link: ["جدّد رابط التقييم", "Renewed an appraisal link"], send_alerts: ["أرسل تنبيهات البريد", "Sent email alerts"],
+  backup_download: ["نزّل نسخة احتياطية", "Downloaded a backup"], reset2fa: ["أعاد ضبط التحقق لمستخدم", "Reset a user's two-step"],
+  twofa_enabled: ["فعّل التحقق بخطوتين", "Turned on two-step"],
 };
 const ENT = {
-  employees: "موظف", documents: "وثيقة", tasks: "متابعة", leaves: "إجازة", movements: "حركة وظيفية", appraisals: "تقييم",
-  dependents: "تابع", insurance: "تأمين", settings: "الإعدادات", users: "مستخدم", api_keys: "مفاتيح الخدمات", jobs: "وظيفة", applicants: "متقدم",
+  employees: ["موظف", "employee"], documents: ["وثيقة", "document"], tasks: ["متابعة", "follow-up"], leaves: ["إجازة", "leave"],
+  movements: ["حركة وظيفية", "job movement"], appraisals: ["تقييم", "appraisal"], dependents: ["تابع", "dependent"],
+  insurance: ["تأمين", "insurance"], settings: ["الإعدادات", "settings"], users: ["مستخدم", "user"], api_keys: ["مفاتيح الخدمات", "service keys"],
+  jobs: ["وظيفة", "job"], applicants: ["متقدم", "applicant"],
 };
+const L2 = (pair, fallback) => (pair ? pair[L() === "en" ? 1 : 0] : fallback);
+const actLabel = (a) => L2(ACT[a], a);
 function auditTarget(r) {
   const id = Number(r.entity_id);
   const emp = (eid) => empName(EMP.get(eid)) || "";
@@ -1238,7 +1247,7 @@ async function activityPage() {
   let rows;
   try { rows = (await api("/api/audit")).rows; } catch (e) { $("#tb").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   rows = rows.filter((r) => r.action !== "login_password_ok").map((r) => ({
-    ...r, who: r.user_name || "—", what: `${ACT[r.action] || r.action}${ENT[r.entity] ? ` ${ENT[r.entity]}` : r.entity && r.action === "import" ? ` (${r.entity})` : ""}`, target: auditTarget(r),
+    ...r, who: r.user_name || "—", what: `${actLabel(r.action)}${ENT[r.entity] ? ` ${L2(ENT[r.entity])}` : r.entity && r.action === "import" ? ` (${r.entity})` : ""}`, target: auditTarget(r),
   }));
   dataTable($("#tb"), {
     id: "activity", rows, exportName: t("act.title"),
@@ -1282,13 +1291,13 @@ PAGES.platforms = () => {
     { k: "department", label: f("department") },
     { k: "q1", label: L() === "en" ? "Qiwa staff" : "قوى - المنشأة", get: (e) => p(e, "qiwa_staff"), render: (e) => markCell(p(e, "qiwa_staff")) },
     { k: "q2", label: L() === "en" ? "Qiwa contract" : "قوى - عقد", get: (e) => p(e, "qiwa_contract"), render: (e) => markCell(p(e, "qiwa_contract")) },
-    { k: "g", label: "GOSI / التأمينات", get: (e) => p(e, "gosi"), render: (e) => markCell(p(e, "gosi")) },
+    { k: "g", label: L() === "en" ? "GOSI" : "التأمينات", get: (e) => p(e, "gosi"), render: (e) => markCell(p(e, "gosi")) },
     { k: "m", label: L() === "en" ? "Muqeem" : "مقيم", get: (e) => p(e, "muqeem"), render: (e) => markCell(p(e, "muqeem")) },
     { k: "w", label: L() === "en" ? "Work permit" : "رخصة العمل", get: (e) => p(e, "work_permit"), render: (e) => markCell(p(e, "work_permit")) },
     { k: "r", label: L() === "en" ? "Result" : "النتيجة", get: (e) => p(e, "result"), render: (e) => markCell(p(e, "result")) },
     { k: "n", label: L() === "en" ? "Note" : "الملاحظة", wrap: true, get: (e) => p(e, "note") },
     { k: "ok", label: "", noExport: true, get: () => "", render: (e) => (canEdit() && p(e, "result") !== "مطابق" ? `<button class="btn ghost sm" data-platok="${e.id}" title="${esc(t("pl.ok.t"))}">✔ ${esc(t("pl.ok"))}</button>` : "") },
-  ], { rows, noAdd: true, onRow: (e) => openProfile(e.id), table: { chipGet: (e) => p(e, "result") || "—", afterDraw: (root) => $$("[data-platok]", root).forEach((b) => b.addEventListener("click", () => platformOk(+b.dataset.platok))) } });
+  ], { rows, noAdd: true, onRow: (e) => openProfile(e.id), table: { chipGet: (e) => p(e, "result") || "—", chipLabel: (v) => (L() === "en" ? { "مطابق": "Matched", "يحتاج مراجعة": "Needs review" }[v] || v : v), afterDraw: (root) => $$("[data-platok]", root).forEach((b) => b.addEventListener("click", () => platformOk(+b.dataset.platok))) } });
 };
 
 // Checked on every platform and all is correct: mark everything matched.
@@ -1583,11 +1592,11 @@ PAGES.audit = async () => {
     cols: [
       { k: "at", label: t("a.at"), num: true, get: (r) => r.at, render: (r) => esc(new Date(r.at).toLocaleString(L() === "en" ? "en-GB" : "ar-SA-u-ca-gregory-nu-latn")) },
       { k: "user_name", label: t("a.user") },
-      { k: "action", label: t("a.action") },
+      { k: "action", label: t("a.action"), get: (r) => actLabel(r.action) },
       { k: "entity", label: t("a.entity"), get: (r) => [r.entity, r.entity_id].filter(Boolean).join(" #") },
       { k: "details", label: t("details"), wrap: true, get: (r) => (r.details ? JSON.stringify(r.details).slice(0, 200) : "") },
     ],
-    chipGet: (r) => r.action,
+    chipGet: (r) => actLabel(r.action),
   });
 };
 
@@ -1596,7 +1605,7 @@ PAGES.audit = async () => {
 function welcome() {
   const h = new Date().getHours();
   const first = String(ME.name || "").split(" ")[0];
-  return `<div class="welcome"><div><h2>${esc(t(h < 12 ? "welcome.morning" : "welcome.evening"))}، ${esc(first)} 👋</h2><p>${esc(t("welcome.sub"))}</p></div>
+  return `<div class="welcome"><div><h2>${esc(t(h < 12 ? "welcome.morning" : "welcome.evening"))}${L() === "en" ? "," : "،"} ${esc(first)} 👋</h2><p>${esc(t("welcome.sub"))}</p></div>
     <div class="welcome-date">${esc(new Date().toLocaleDateString(L() === "en" ? "en-GB" : "ar-SA-u-ca-gregory-nu-latn", { weekday: "long", day: "numeric", month: "long", year: "numeric" }))}</div></div>`;
 }
 
@@ -1738,7 +1747,11 @@ function shareLink(id, tok, stage) {
   const e = EMP.get(a?.employee_id);
   const link = signLink(tok);
   const who = stage === "manager" ? (a?.manager_name || "") : empName(e);
-  const msg = stage === "manager"
+  const msg = L() === "en"
+    ? (stage === "manager"
+      ? `Dear ${who},\nPlease complete the performance appraisal and contract-renewal decision for ${empName(e)} and sign electronically here:\n${link}\n— Human Resources, Novotel Al Madinah`
+      : `Dear ${who},\nPlease review your performance appraisal and contract-renewal decision and sign electronically here:\n${link}\n— Human Resources, Novotel Al Madinah`)
+    : stage === "manager"
     ? `السلام عليكم ${who}،\nنرجو تقييم أداء الموظف/ة ${empName(e)} وتحديد قرار تجديد العقد والتوقيع إلكترونيًا عبر الرابط:\n${link}\n— الموارد البشرية، نوفوتيل المدينة`
     : `السلام عليكم ${who}،\nنرجو الاطلاع على تقييم أدائك وقرار تجديد العقد والتوقيع إلكترونيًا عبر الرابط:\n${link}\n— الموارد البشرية، نوفوتيل المدينة`;
   const m = modal(`<header><h3>🔗 ${esc(t(stage === "manager" ? "apr.sendmgr" : "apr.sendemp"))} — ${esc(who)}</h3><button class="x" data-close>×</button></header>
@@ -1747,7 +1760,7 @@ function shareLink(id, tok, stage) {
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
         <button class="btn" id="lcp">📋 ${esc(t("apr.copy"))}</button>
         <a class="btn ghost" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">💬 WhatsApp</a>
-        <a class="btn ghost" href="mailto:?subject=${encodeURIComponent("تقييم الأداء وتجديد العقد — " + empName(e))}&body=${encodeURIComponent(msg)}">✉️ ${esc(t("apr.email"))}</a>
+        <a class="btn ghost" href="mailto:?subject=${encodeURIComponent((L() === "en" ? "Performance appraisal & contract renewal — " : "تقييم الأداء وتجديد العقد — ") + empName(e))}&body=${encodeURIComponent(msg)}">✉️ ${esc(t("apr.email"))}</a>
         <a class="btn ghost" target="_blank" rel="noopener" href="${esc(link)}">↗ ${esc(t("apr.open"))}</a>
         ${canEdit() ? `<button class="btn ghost" id="lnew">↻ ${esc(t("apr.renew"))}</button>` : ""}
       </div><p class="muted small">${esc(t("apr.expires"))}: ${esc(fmtDate(a?.expires_at))}</p></div>`);
@@ -1856,8 +1869,8 @@ function qualityReport() {
     ["q.nomob", active.filter((e) => !/^0?5\d{8}$/.test(String(e.mobile || "").replace(/\D/g, "").replace(/^966/, ""))), (e) => e.mobile || "—"],
     ["q.nocontract", active.filter((e) => e.kind === "staff" && !isMoved(e) && !docsOf(e).some((d) => d.doc_type === "contract")), () => ""],
     ["q.noiqama", active.filter((e) => !isSaudi(e.nationality) && !/^1/.test(String(e.id_no || "")) && !docsOf(e).some((d) => d.doc_type === "iqama")), () => ""],
-    ["q.nodate", active.filter((e) => docsOf(e).some((d) => docStatus(d, st).status === "none")), (e) => docsOf(e).filter((d) => docStatus(d, st).status === "none").map((d) => docLabel(d.doc_type)).join("، ")],
-    ["q.expired", active.filter((e) => docsOf(e).some((d) => docStatus(d, st).status === "expired")), (e) => docsOf(e).filter((d) => docStatus(d, st).status === "expired").map((d) => `${docLabel(d.doc_type)} ${fmtDate(d.expiry_date)}`).join("، ")],
+    ["q.nodate", active.filter((e) => docsOf(e).some((d) => docStatus(d, st).status === "none")), (e) => docsOf(e).filter((d) => docStatus(d, st).status === "none").map((d) => docLabel(d.doc_type)).join(L() === "en" ? ", " : "، ")],
+    ["q.expired", active.filter((e) => docsOf(e).some((d) => docStatus(d, st).status === "expired")), (e) => docsOf(e).filter((d) => docStatus(d, st).status === "expired").map((d) => `${docLabel(d.doc_type)} ${fmtDate(d.expiry_date)}`).join(L() === "en" ? ", " : "، ")],
   ];
   const total = checks.reduce((s, [, list]) => s + list.length, 0);
   const n = (v) => `<span class="num">${esc(v)}</span>`;
