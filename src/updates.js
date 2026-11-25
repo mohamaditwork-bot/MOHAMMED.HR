@@ -546,6 +546,8 @@ H.master = async (db, wb) => {
 //   وثيقة          → set a document's expiry (الحقل = الإقامة / الجواز / الشهادة الصحية / أجير / رخصة العمل / العقد)
 //   عدم تجديد      → contract will not be renewed (السبب shown in alerts)
 //   متابعة         → open a follow-up task
+//   منقول          → moved to an outside company (kept with labor, labelled منقولين)
+//   إلغاء النقل    → undo «منقول»: back with the permanent staff
 const FIX_FIELDS = { "الاسم عربي": "name_ar", "الاسم": "name_ar", "الاسم إنجليزي": "name_en", "الجوال": "mobile", "الإيميل": "email", "القسم": "department", "القطاع": "sector", "المسمى": "job_title", "المسمى الوظيفي": "job_title", "مهنة قوى": "qiwa_job", "مهنة الإقامة": "iqama_job", "الجنسية": "nationality", "الجنس": "gender", "الميلاد": "birth_date", "الانضمام": "join_date", "المباشرة": "start_date", "الدرجة": "grade", "الإجازة": "leave_days", "الأساسي": "basic_salary", "الراتب الأساسي": "basic_salary", "السكن": "housing", "النقل": "transport", "الإجمالي": "total_salary", "الراتب الإجمالي": "total_salary", "البنك": "bank", "الآيبان": "iban", "الشركة": "company", "الرقم الوظيفي": "emp_no", "ساعات العمل": "work_hours", "ملاحظات": "notes" };
 const FIX_DOCS = { "الإقامة": "iqama", "الجواز": "passport", "الشهادة الصحية": "health", "أجير": "ajeer", "رخصة العمل": "work_permit", "العقد": "contract", "التأمين": "insurance" };
 
@@ -620,6 +622,12 @@ H.fixes = async (db, wb) => {
       const base = String(txt(val) || cur).replace(/^(منقولين|طرف ثالث \(Third Party\))( — )?/, "").trim();
       await db.query("UPDATE employees SET kind = 'labor', company = $1, updated_at = now() WHERE id = $2", [base ? `منقولين — ${base}` : "منقولين", e.id]);
       out.push(`↪ ${nm(e)}: منقولة/منقول لشركة خارجية${base ? ` (${base})` : ""}`);
+    } else if (act === "إلغاء النقل" || act === "غير منقول") {
+      // Undo a wrong «منقول»: back with the hotel's permanent staff.
+      const cur = (await db.query("SELECT company FROM employees WHERE id = $1", [e.id]))[0]?.company || "";
+      const base = String(cur).replace(/^(منقولين|طرف ثالث \(Third Party\))( — )?/, "").trim();
+      await db.query("UPDATE employees SET kind = 'staff', company = $1, updated_at = now() WHERE id = $2", [base || null, e.id]);
+      out.push(`↩ ${nm(e)}: مو منقول — رجع مع الموظفين الدائمين`);
     } else if (act === "مطابقة صحيحة") {
       // Checked on every platform: everything is correct.
       const np = { ...((await db.query("SELECT platform FROM employees WHERE id = $1", [e.id]))[0]?.platform || {}) };
