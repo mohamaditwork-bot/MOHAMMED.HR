@@ -47,10 +47,18 @@ function stepPassword() {
   };
 }
 
+// Arabic / Persian digits (from an Arabic phone keyboard) → 0-9
+const latin = (v) => String(v || "").replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
+
 async function stepSetup() {
   card.innerHTML = `${head}<p class="sub">📱 ${esc(t("lg.2fa.title"))}</p>
     <ol class="setup-steps small"><li>${t("lg.2fa.s1")}</li><li>${esc(t("lg.2fa.s2"))}</li><li>${esc(t("lg.2fa.s3"))}</li></ol>
-    <div class="qr" id="qr">…</div><p class="small muted" style="text-align:center">${esc(t("lg.2fa.manual"))}<br><code id="sec" dir="ltr"></code></p>
+    <div class="qr" id="qr">…</div>
+    <p class="small muted" style="text-align:center;margin:6px 0">${esc(t("lg.2fa.same"))}</p>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:8px">
+      <a class="btn ghost" id="otpLink" href="#" style="padding:8px 12px">📲 ${esc(t("lg.2fa.open"))}</a>
+      <button class="btn ghost" type="button" id="secCopy" style="padding:8px 12px">📋 ${esc(t("lg.2fa.copy"))}</button></div>
+    <p class="small muted" style="text-align:center">${esc(t("lg.2fa.manual"))}<br><code id="sec" dir="ltr"></code></p>
     <div class="field"><input class="input code-in" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" required dir="ltr"></div>
     <button class="btn" style="width:100%;padding:12px" type="submit">${esc(t("lg.2fa.enable"))}</button><p class="msg err" id="msg"></p>${tools()}`;
   bindOut();
@@ -60,10 +68,14 @@ async function stepSetup() {
     const qr = window.qrcode(0, "M"); qr.addData(d.url); qr.make();
     $("#qr").innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
     $("#sec").textContent = d.secret.replace(/(.{4})/g, "$1 ").trim();
+    $("#otpLink").href = d.url; // opens Google / Microsoft Authenticator on the same phone
+    $("#secCopy").onclick = async () => {
+      try { await navigator.clipboard.writeText(d.secret); $("#secCopy").textContent = "✔ " + t("lg.2fa.copied"); } catch { $("#sec").focus(); }
+    };
   } catch (er) { $("#msg").textContent = er.message; }
   card.onsubmit = async (e) => {
     e.preventDefault(); $("#msg").textContent = "";
-    try { const d = await post("/api/twofa", { action: "confirm", code: $("#code").value }); showBackup(d.backup_codes); } catch (er) { $("#msg").textContent = er.message; }
+    try { const d = await post("/api/twofa", { action: "confirm", code: latin($("#code").value) }); showBackup(d.backup_codes); } catch (er) { $("#msg").textContent = er.message; }
   };
 }
 
@@ -88,7 +100,7 @@ function stepCode() {
   $("#code").focus();
   card.onsubmit = async (e) => {
     e.preventDefault(); $("#msg").textContent = "";
-    try { const d = await post("/api/twofa", { action: "verify", code: $("#code").value.trim() }); if (d.backup_left !== undefined && d.backup_left < 3) alert(t("lg.bk.low").replace("{n}", d.backup_left)); location.replace("/app.html"); } catch (er) { $("#msg").textContent = er.message; }
+    try { const d = await post("/api/twofa", { action: "verify", code: latin($("#code").value).trim() }); if (d.backup_left !== undefined && d.backup_left < 3) alert(t("lg.bk.low").replace("{n}", d.backup_left)); location.replace("/app.html"); } catch (er) { $("#msg").textContent = er.message; }
   };
 }
 
@@ -105,6 +117,6 @@ fetch("/api/me").then(async (r) => { if (r.ok) { const d = await r.json(); go(d.
 card.onsubmit = async (e) => {
   e.preventDefault();
   const btn = $("#go"); $("#msg").textContent = ""; btn.disabled = true;
-  try { const d = await post("/api/login", { id: $("#uid").value.trim(), password: $("#pw").value }); go(d.next); }
+  try { const d = await post("/api/login", { id: latin($("#uid").value).trim(), password: $("#pw").value }); go(d.next); }
   catch (er) { $("#msg").textContent = er.message; btn.disabled = false; }
 };
