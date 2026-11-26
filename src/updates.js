@@ -594,6 +594,7 @@ H.master = async (db, wb) => {
 //   إلغاء النقل    → undo «منقول»: back with the permanent staff
 //   إرجاع          → bring back someone removed by mistake (from the recycle bin) — later files may add them again
 //   تأمين          → medical insurance class of the employee (القيمة = A / B / C …)
+//   إلغاء قيد الإصدار → undo «قيد الإصدار» for a document (الحقل = which document)
 const FIX_FIELDS = { "الاسم عربي": "name_ar", "الاسم": "name_ar", "الاسم إنجليزي": "name_en", "الجوال": "mobile", "الإيميل": "email", "القسم": "department", "القطاع": "sector", "المسمى": "job_title", "المسمى الوظيفي": "job_title", "مهنة قوى": "qiwa_job", "مهنة الإقامة": "iqama_job", "الجنسية": "nationality", "الجنس": "gender", "الميلاد": "birth_date", "الانضمام": "join_date", "المباشرة": "start_date", "الدرجة": "grade", "الإجازة": "leave_days", "الأساسي": "basic_salary", "الراتب الأساسي": "basic_salary", "السكن": "housing", "النقل": "transport", "الإجمالي": "total_salary", "الراتب الإجمالي": "total_salary", "البنك": "bank", "الآيبان": "iban", "الشركة": "company", "الرقم الوظيفي": "emp_no", "ساعات العمل": "work_hours", "ملاحظات": "notes" };
 const FIX_DOCS = { "الإقامة": "iqama", "الجواز": "passport", "الشهادة الصحية": "health", "أجير": "ajeer", "رخصة العمل": "work_permit", "العقد": "contract", "التأمين": "insurance" };
 
@@ -714,6 +715,16 @@ H.fixes = async (db, wb) => {
       if (c) await db.query("UPDATE documents SET details = $1, updated_at = now() WHERE id = $2", [JSON.stringify(det), c.id]);
       else await upsertDoc(db, e.id, type, { details: det });
       out.push(`📨 ${nm(e)}: ${field || "الشهادة الصحية"} — قيد الإصدار`);
+    } else if (act === "إلغاء قيد الإصدار") {
+      // The document is not being issued after all: back to plain «بدون تاريخ».
+      const type = FIX_DOCS[field] || field || "health";
+      const c = (await db.query("SELECT id, details FROM documents WHERE employee_id = $1 AND doc_type = $2", [e.id, type]))[0];
+      if (c) {
+        const det = { ...(typeof c.details === "string" ? JSON.parse(c.details || "{}") : c.details || {}) };
+        delete det.pending; delete det.pending_note;
+        await db.query("UPDATE documents SET details = $1, updated_at = now() WHERE id = $2", [JSON.stringify(det), c.id]);
+      }
+      out.push(`↩ ${nm(e)}: ${field || "الشهادة الصحية"} — مو قيد الإصدار`);
     } else if (act === "متابعة") {
       await addTask(db, "followup", field || "متابعة", nm(e), id, txt(val) || why || "");
       out.push(`📌 ${nm(e)}: متابعة — ${field || ""} ${txt(val) || why || ""}`.trim());
