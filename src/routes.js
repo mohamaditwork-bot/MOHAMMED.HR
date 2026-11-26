@@ -2,7 +2,7 @@
 // `env` (secrets + the key-value store in env.HR).
 import {
   json, sameOrigin, requireUser, getUsers, saveUsers, hashPassword, verifyPassword,
-  isLocked, recordFail, clearFails, sessionCookie, clearCookie, ROLES,
+  isLocked, recordFail, clearFails, sessionCookie, clearCookie, ROLES, roleAtLeast,
 } from "./auth.js";
 import { getDb } from "./db.js";
 import { TABLES, coerce } from "./schema.js";
@@ -265,6 +265,26 @@ export async function getSettings(env) {
       await env.HR.put("settings", JSON.stringify(s));
     } catch (e) { console.error("rev 12 update failed", e); }
   }
+  // rev 13 (owner request): the housing supervisor's account may add/edit contractor labour (still labour only).
+  if ((s.settings_rev || 0) < 13) {
+    try {
+      const db = await getDb(env);
+      const hs = await db.query("SELECT id_no FROM employees WHERE status <> 'left' AND kind = 'staff' AND job_title ~* 'housing\\s*supervisor'");
+      const users = await getUsers(env);
+      let changed = false;
+      for (const h of hs) {
+        const rec = users[String(h.id_no)];
+        if (rec && rec.role === "labor_viewer") {
+          rec.role = "labor_editor";
+          changed = true;
+          await audit(env, { name: "النظام" }, "update", "user", String(h.id_no), { name: rec.name, role: "labor_editor" });
+        }
+      }
+      if (changed) await saveUsers(env, users);
+      s = { ...s, settings_rev: 13 };
+      await env.HR.put("settings", JSON.stringify(s));
+    } catch (e) { console.error("rev 13 update failed", e); }
+  }
   return { ...DEFAULT_SETTINGS, ...s };
 }
 
@@ -365,12 +385,40 @@ function laborOnly(data) {
   }
   return out;
 }
+const LABOR_ROLES = new Set(["labor_viewer", "labor_editor"]);
+const LABOR_TABLES = new Set(["employees", "documents", "dependents", "insurance", "leaves", "movements"]);
+const LABOR_ONLY = "هذي الصلاحية للعمالة فقط";
+async function isLaborEmp(db, empId) {
+  const id = parseInt(empId, 10);
+  if (!id) return false;
+  const e = (await db.query("SELECT kind, company FROM employees WHERE id = $1", [id]))[0];
+  return !!e && e.kind === "labor" && !MOVED_CO.test(String(e.company || "").trim());
+}
+// What a labour editor may change: contractor labour (not staff, not transferred) and rows linked to them.
+async function laborScope(db, table, method, body, data) {
+  if (!LABOR_TABLES.has(table)) return LABOR_ONLY;
+  if (table === "employees") {
+    if (data && "company" in data && MOVED_CO.test(String(data.company || "").trim())) return LABOR_ONLY;
+    if (method === "POST") { data.kind = "labor"; return null; }
+    if (!(await isLaborEmp(db, body.id))) return LABOR_ONLY;
+    if (data && "kind" in data && data.kind !== "labor") return LABOR_ONLY;
+    return null;
+  }
+  if (method !== "POST") {
+    const row = (await db.query(`SELECT employee_id FROM ${table} WHERE id = $1`, [parseInt(body.id, 10) || 0]))[0];
+    if (!row || !(await isLaborEmp(db, row.employee_id))) return LABOR_ONLY;
+  }
+  if (method === "POST" || (data && "employee_id" in data)) {
+    if (!(await isLaborEmp(db, data?.employee_id))) return LABOR_ONLY;
+  }
+  return null;
+}
 const publicSettings = (s) => Object.fromEntries(Object.entries(s).filter(([k]) => !/email|key|secret|token/i.test(k)));
 
 async function all(req, env) {
   const u = await requireUser(env, req, { role: "labor_viewer" });
   if (u instanceof Response) return u;
-  if (u.role === "labor_viewer") return json({ ...laborOnly(await loadAll(env)), settings: publicSettings(await getSettings(env)) });
+  if (LABOR_ROLES.has(u.role)) return json({ ...laborOnly(await loadAll(env)), settings: publicSettings(await getSettings(env)) });
   const data = await loadAll(env);
   // Signing links act as signatures — only people who may edit get them.
   if (!(u.role === "admin" || u.role === "editor")) for (const a of data.appraisals || []) { a.token_mgr = null; a.token_emp = null; }
@@ -382,8 +430,11 @@ async function rows(req, env) {
   const table = url.searchParams.get("table");
   const cfg = TABLES[table];
   if (!cfg) return json({ error: "جدول غير معروف" }, 400);
-  const u = await requireUser(env, req, { role: req.method === "GET" ? "viewer" : "editor" });
+  const write = req.method !== "GET";
+  const u = await requireUser(env, req, { role: write ? "labor_viewer" : "viewer" });
   if (u instanceof Response) return u;
+  const laborEd = write && u.role === "labor_editor";
+  if (write && !laborEd && !roleAtLeast(u.role, "editor")) return json({ error: "ما عندك صلاحية تعديل" }, 403);
   const db = await getDb(env);
 
   if (req.method === "GET") return json({ rows: clean(await db.query(`SELECT * FROM ${table} ORDER BY ${cfg.order}`)) });
@@ -394,6 +445,7 @@ async function rows(req, env) {
   if (req.method === "DELETE") {
     const id = parseInt(body.id, 10);
     if (!id) return json({ error: "رقم السجل مفقود" }, 400);
+    if (laborEd) { const no = await laborScope(db, table, "DELETE", body, null); if (no) return json({ error: no }, 403); }
     const snap = await toTrash(db, table, id, u);
     const before = snap ? [snap.row] : [];
     await db.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
@@ -411,6 +463,7 @@ async function rows(req, env) {
     if (d < 1) return json({ error: "تاريخ النهاية قبل البداية" }, 400);
     data.days = d;
   }
+  if (laborEd) { const no = await laborScope(db, table, req.method, body, data); if (no) return json({ error: no }, 403); }
   if (req.method === "POST") {
     for (const r of cfg.required) if (data[r] === null || data[r] === undefined) return json({ error: `الحقل مطلوب: ${r}` }, 400);
     const cols = Object.keys(data);

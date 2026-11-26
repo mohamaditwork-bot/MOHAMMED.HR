@@ -25,10 +25,10 @@ let EMP = new Map(); // id -> employee
 let charts = [];
 const tableState = {};
 
-const canEdit = () => ME && (ME.role === "editor" || ME.role === "admin");
+const canEdit = () => ME && (ME.role === "editor" || ME.role === "admin" || ME.role === "labor_editor");
 const isAdmin = () => ME && ME.role === "admin";
 // Read-only account limited to contractor labour: only these pages (the server sends labour data only).
-const laborOnly = () => ME && ME.role === "labor_viewer";
+const laborOnly = () => ME && (ME.role === "labor_viewer" || ME.role === "labor_editor");
 const LABOR_PAGES = ["labor", "documents", "insurance", "dependents", "leaves"];
 const settings = () => ({ ...DEFAULT_SETTINGS, ...(D?.settings || {}) });
 
@@ -835,7 +835,7 @@ function openProfile(id, tab) {
         <tbody>${mvs.map((x) => `<tr class="click" data-mv="${x.id}"><td class="num">${esc(fmtDate(x.move_date))}</td><td>${esc(t("mv." + x.move_type))}</td><td>${esc(x.from_value || "")}</td><td>${esc(x.to_value || "")}</td><td class="wrap">${esc(x.notes || "")}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">${esc(t("none"))}</td></tr>`}</tbody></table></div>
       </div>
       <div data-pane="apr" class="hidden">
-        ${canEdit() ? `<button class="btn sm no-print" id="pAddApr" style="margin-bottom:10px">+ ${esc(t("apr.new"))}</button>` : ""}
+        ${canEdit() && !laborOnly() ? `<button class="btn sm no-print" id="pAddApr" style="margin-bottom:10px">+ ${esc(t("apr.new"))}</button>` : ""}
         ${aprTable(aprs, false)}
       </div>
       <div data-pane="deps" class="hidden">
@@ -899,7 +899,7 @@ PAGES.documents = () => {
   const bad = (k) => rows.filter((r) => groupOf(r.e) === k && (r.s.status === "expired" || r.s.status === "near")).length;
   const tabs = laborOnly() ? ["labor"] : ["staff", "labor"];
   $("#view").innerHTML = head(t("p.documents"), `${t("set.iqama")} ${st.iqama} • ${t("set.contracts")} ${st.contracts} • ${t("set.docs")} ${st.docs} ${t("days")}`,
-    `${canEdit() ? `<button class="btn ghost" id="renewNow">🔁 ${esc(t("rn.btn").replace("{n}", st.contract_renew_days ?? 75))}</button><button class="btn" id="addDoc">+ ${esc(t("doc.add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) +
+    `${canEdit() && !laborOnly() ? `<button class="btn ghost" id="renewNow">🔁 ${esc(t("rn.btn").replace("{n}", st.contract_renew_days ?? 75))}</button>` : ""}${canEdit() ? `<button class="btn" id="addDoc">+ ${esc(t("doc.add"))}</button>` : ""}<button class="btn ghost" data-act="print">${esc(t("print"))}</button>`) +
     `<div class="tabs" id="docKind">${tabs.map((k) => `<button class="tab ${k === kind ? "on" : ""}" data-k="${k}">${esc(t(GROUP_LABEL[k]))} <span class="pill ${bad(k) ? "s-expired" : "s-ok"}">${bad(k)}</span></button>`).join("")}</div><div class="card" id="tb"></div>`;
   $("#addDoc")?.addEventListener("click", () => openForm("documents", null, { title: t("doc.add") }));
   $("#renewNow")?.addEventListener("click", renewContractsNow);
@@ -1542,7 +1542,7 @@ function userForm(u, draw) {
     <div class="body"><div class="form-grid">
       <div><label class="fl">${esc(t("u.id"))}</label><input class="input" id="uid" value="${esc(u?.id || "")}" ${u ? "disabled" : ""} dir="ltr" inputmode="numeric"></div>
       <div><label class="fl">${esc(t("u.name"))}</label><input class="input" id="un" value="${esc(u?.name || "")}"></div>
-      <div><label class="fl">${esc(t("u.role"))}</label><select class="input" id="ur">${["labor_viewer", "viewer", "editor", "admin"].map((r) => `<option value="${r}" ${u?.role === r ? "selected" : ""}>${esc(t("role." + r))}</option>`).join("")}</select></div>
+      <div><label class="fl">${esc(t("u.role"))}</label><select class="input" id="ur">${["labor_viewer", "labor_editor", "viewer", "editor", "admin"].map((r) => `<option value="${r}" ${u?.role === r ? "selected" : ""}>${esc(t("role." + r))}</option>`).join("")}</select></div>
       <div><label class="fl">${esc(t("u.pw"))}</label><input class="input" id="up" dir="ltr" autocomplete="new-password"></div></div><p class="msg err" id="ue"></p></div>
     <footer>${u && u.id !== ME.id ? `<button class="btn danger sm" id="udel" style="margin-inline-end:auto">${esc(t("delete"))}</button>` : ""}${u?.twofa ? `<button class="btn ghost sm" id="u2fa">📱 ${esc(t("sec.reset2fa"))}</button>` : ""}${u && u.id !== ME.id ? `<button class="btn ghost sm" id="urel" title="${esc(t("sec.relogin.t"))}">🔄 ${esc(t("sec.relogin"))}</button>` : ""}<button class="btn ghost" data-close>${esc(t("cancel"))}</button><button class="btn" id="us">${esc(t("save"))}</button></footer>`, "sm");
   $("#uid", m.root).addEventListener("change", () => {
@@ -1628,12 +1628,12 @@ function setupQuickAdd() {
   const wrap = document.createElement("div");
   wrap.className = "fab no-print";
   wrap.innerHTML = `<div class="fab-menu hidden">
-      <button data-q="staff">👤 ${esc(t("p.employees"))}</button>
+      ${laborOnly() ? "" : `<button data-q="staff">👤 ${esc(t("p.employees"))}</button>`}
       <button data-q="labor">👷 ${esc(t("p.labor"))}</button>
       <button data-q="doc">📄 ${esc(t("doc.add"))}</button>
       <button data-q="leave">🌴 ${esc(t("lv.add"))}</button>
-      <button data-q="move">↕ ${esc(t("mv.add"))}</button>
-      <button data-q="app">🧑‍💼 ${esc(t("r.app.add"))}</button>
+      ${laborOnly() ? "" : `<button data-q="move">↕ ${esc(t("mv.add"))}</button>
+      <button data-q="app">🧑‍💼 ${esc(t("r.app.add"))}</button>`}
     </div><button class="fab-btn" title="${esc(t("quick.add"))}">+</button>`;
   document.body.appendChild(wrap);
   const menu = $(".fab-menu", wrap);

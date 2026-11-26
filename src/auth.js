@@ -49,7 +49,8 @@ export async function verifyPassword(pw, stored) {
 
 // Roles from least to most access. "labor_viewer" sees contractor labour only, read-only: every route
 // needs at least "viewer" unless it explicitly allows it (and then returns labour data only).
-export const ROLES = ["labor_viewer", "viewer", "editor", "admin"];
+// "labor_editor" may also add / edit / delete contractor labour and their rows — never anything else.
+export const ROLES = ["labor_viewer", "labor_editor", "viewer", "editor", "admin"];
 export const roleAtLeast = (role, min) => ROLES.indexOf(role) >= ROLES.indexOf(min);
 
 // ---------- users (KV key "users": { "<id>": { name, role, hash } }) ----------
