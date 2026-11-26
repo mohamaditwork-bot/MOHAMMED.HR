@@ -292,6 +292,7 @@ async function resetLogin(env, rec, id) {
   delete rec.totp; delete rec.backup; delete rec.totp_pending;
   rec.sv = (rec.sv || 0) + 1;
   await clearFails(env, id);
+  await clearFails(env, `2fa:${id}`);
 }
 
 async function users(req, env) {
@@ -326,6 +327,7 @@ async function users(req, env) {
     delete all[id].totp; delete all[id].backup; delete all[id].totp_pending;
     all[id].sv = (all[id].sv || 0) + 1;
     await saveUsers(env, all);
+    await clearFails(env, `2fa:${id}`);
     await audit(env, me, "reset_2fa", "user", id);
     return list();
   }

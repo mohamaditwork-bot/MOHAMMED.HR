@@ -38,11 +38,15 @@ export async function totpAt(secret, counter) {
 }
 
 // Returns the matching time step (to block reuse) or -1. Accepts ±1 step (30 s) of clock drift.
+// Phones with an Arabic keyboard type ٠١٢… (or Persian ۰۱۲…) — treat them as 0-9.
+export const latinDigits = (v) => String(v ?? "").replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
+
 export async function verifyTotp(secret, code, lastStep = -1, now = Date.now()) {
-  const c = String(code || "").replace(/\s+/g, "");
+  const c = latinDigits(code).replace(/\s+/g, "");
   if (!/^\d{6}$/.test(c)) return -1;
   const step = Math.floor(now / 30000);
-  for (const s of [step, step - 1, step + 1]) {
+  // ±1 minute: a phone clock a little off still works.
+  for (const s of [step, step - 1, step + 1, step - 2, step + 2]) {
     if (s <= lastStep) continue;
     if ((await totpAt(secret, s)) === c) return s;
   }
@@ -65,7 +69,7 @@ export async function newBackupCodes(n = 8) {
   return { codes, hashes: await Promise.all(codes.map((c) => sha(c))) };
 }
 export async function useBackupCode(hashes, code) {
-  const h = await sha(String(code || "").toUpperCase().replace(/\s+/g, ""));
+  const h = await sha(latinDigits(code).toUpperCase().replace(/\s+/g, ""));
   const i = (hashes || []).indexOf(h);
   return i;
 }

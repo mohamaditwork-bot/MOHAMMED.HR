@@ -3,7 +3,7 @@ import {
   json, getUsers, saveUsers, hashPassword, verifyPassword, isLocked, recordFail, clearFails,
   sessionCookie, clearCookie, requireUser, uaHash, clientIp,
 } from "./auth.js";
-import { newSecret, verifyTotp, otpauthUrl, newBackupCodes, useBackupCode } from "./totp.js";
+import { newSecret, verifyTotp, otpauthUrl, newBackupCodes, useBackupCode, latinDigits } from "./totp.js";
 import { sendMail } from "./alerts.js";
 
 const ID_RE = /^\d{5,15}$/;
@@ -47,11 +47,12 @@ export function loginRoutes({ audit, getSettings }) {
     if (await rateLimited(env, req, "login", 30)) return tooMany();
     const body = await readJson(req);
     if (!body) return json({ error: "بيانات غير صحيحة" }, 400);
-    const id = String(body.id || "").trim();
+    const id = latinDigits(body.id).replace(/\s+/g, "");
     const password = String(body.password || "");
     if (!ID_RE.test(id) || !password) return json({ error: "اكتب رقم الهوية وكلمة المرور" }, 400);
     const until = await isLocked(env, id);
     if (until) return json({ error: `تم إيقاف الدخول مؤقتًا بسبب محاولات خاطئة. حاول بعد ${Math.ceil((until - Date.now()) / 60e3)} دقيقة` }, 429);
+    await getSettings(env); // one-time setup steps (e.g. accounts created by an update) run before the first sign-in
     const all = await getUsers(env);
     const u = all[id];
     if (!u || !(await verifyPassword(password, u.hash))) {
