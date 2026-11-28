@@ -295,7 +295,7 @@ async function loadAll(env) {
   out.attachments = []; // the system keeps data only — no uploaded files
   out.storage = (await db.query("SELECT pg_database_size(current_database()) AS bytes"))[0]?.bytes ?? null;
   out.appraisals = clean(await db.query(
-    `SELECT id, employee_id, period, manager_name, manager_title, status, total, grade, decision, decision_note,
+    `SELECT id, employee_id, period, manager_name, manager_title, status, total, grade, decision, decision_note, employee_wish,
             manager_signed_at, employee_signed_at, hr_name, hr_signed_at, token_mgr, token_emp, expires_at, created_by, created_at FROM appraisals ORDER BY created_at DESC`));
   return out;
 }

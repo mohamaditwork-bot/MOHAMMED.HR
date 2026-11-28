@@ -1784,6 +1784,41 @@ function shareLink(id, tok, stage) {
   });
 }
 
+// One message to a manager with every appraisal link waiting for him (email, WhatsApp or copy).
+function managerMail() {
+  const pending = (D.appraisals || []).filter((a) => a.status === "manager" && a.token_mgr && EMP.has(a.employee_id));
+  const byMgr = {};
+  for (const a of pending) (byMgr[(a.manager_name || "").trim()] ||= []).push(a);
+  const names = Object.keys(byMgr).sort((x, y) => byMgr[y].length - byMgr[x].length);
+  if (!names.length) return toast(t("apr.none"), true);
+  const m = modal(`<header><h3>✉️ ${esc(t("apr.mgrmail"))}</h3><button class="x" data-close>×</button></header>
+    <div class="body"><label class="fl">${esc(t("apr.manager"))}</label>
+      <select class="input" id="mmSel">${names.map((n) => `<option value="${esc(n)}">${esc(n)} (${byMgr[n].length})</option>`).join("")}</select>
+      <textarea class="input" id="mmTxt" rows="14" style="margin-top:10px;font-size:13px"></textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn" id="mmCp">📋 ${esc(t("apr.copy"))}</button>
+        <a class="btn ghost" id="mmMail" href="#">✉️ ${esc(t("apr.email"))}</a>
+        <a class="btn ghost" id="mmWa" target="_blank" rel="noopener" href="#">💬 WhatsApp</a></div>
+      <p class="muted small" id="mmTo"></p></div>`, "wide");
+  const draw = () => {
+    const name = $("#mmSel", m.root).value, list = byMgr[name] || [];
+    const boss = D.employees.find((e) => e.status !== "left" && [e.name_ar, e.name_en].some((x) => x && x.trim() === name));
+    const items = list.map((a, i) => { const e = EMP.get(a.employee_id); return `${i + 1}. ${empName(e)} — ${e?.job_title || ""}\n${signLink(a.token_mgr)}`; }).join("\n\n");
+    const en = L() === "en";
+    const msg = en
+      ? `Dear ${name},\n\nPlease complete the performance appraisal and contract-renewal decision for the following employees and sign electronically using their links:\n\n${items}\n\nEach link is valid for 30 days. After you sign, the employee receives their part.\n\nThank you,\nHuman Resources — Novotel Al Madinah`
+      : `السلام عليكم أ. ${name}،\n\nنرجو تقييم أداء الموظفين التالية أسماؤهم وتحديد قرار تجديد عقودهم، والتوقيع إلكترونيًا عبر رابط كل موظف:\n\n${items}\n\nكل رابط صالح لمدة 30 يومًا، وبعد توقيعك يُرسل الجزء الخاص بالموظف.\n\nمع الشكر والتقدير،\nالموارد البشرية — نوفوتيل المدينة المنورة`;
+    const subject = en ? "Performance appraisal & contract renewal" : "تقييم الأداء وتجديد العقود";
+    $("#mmTxt", m.root).value = msg;
+    $("#mmMail", m.root).href = `mailto:${encodeURIComponent(boss?.email || "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(msg)}`;
+    $("#mmWa", m.root).href = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    $("#mmTo", m.root).textContent = boss?.email ? `${t("apr.mgrmail.to")}: ${boss.email}` : "";
+  };
+  $("#mmSel", m.root).onchange = draw;
+  $("#mmCp", m.root).onclick = () => { navigator.clipboard?.writeText($("#mmTxt", m.root).value); toast("✔ " + t("apr.copied")); };
+  draw();
+}
+
 async function viewAppraisal(id) {
   try {
     const v = await api("/api/appraisals?id=" + id);
@@ -1792,11 +1827,12 @@ async function viewAppraisal(id) {
       <div class="body">${renderDoc(v)}
       ${canHr ? `<div class="card no-print hr-sign"><h3>✍️ ${esc(t("apr.hr.title"))}</h3><p class="muted small">${esc(t("apr.hr.desc").replace("{n}", ME?.name || ""))}</p>
         <div class="sig-area"><canvas id="hrSig"></canvas><span class="sig-ph" id="hrPh">${esc(t("apr.hr.here"))}</span></div>
-        <div style="display:flex;gap:8px;margin-top:8px"><button class="btn ghost sm" id="hrClr">${esc(t("apr.hr.clear"))}</button><button class="btn" id="hrGo">✔ ${esc(t("apr.hr.go"))}</button></div></div>` : ""}</div>`, "wide");
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn ghost sm" id="hrClr">${esc(t("apr.hr.clear"))}</button><label class="btn ghost sm" for="hrUpl" style="cursor:pointer">📷 ${esc(t("apr.upload"))}</label><input type="file" id="hrUpl" accept="image/*" hidden><button class="btn" id="hrGo">✔ ${esc(t("apr.hr.go"))}</button></div></div>` : ""}</div>`, "wide");
     $("#aprPr", m.root).onclick = () => printModal(m);
     if (canHr) {
       const pad = sigPad($("#hrSig", m.root), (has) => { $("#hrPh", m.root).style.display = has ? "none" : ""; });
       $("#hrClr", m.root).onclick = () => pad.clear();
+      $("#hrUpl", m.root).onchange = async (ev) => { const f = ev.target.files?.[0]; ev.target.value = ""; try { if (f) await pad.load(f); } catch { toast(t("apr.upload.bad"), true); } };
       $("#hrGo", m.root).onclick = async () => {
         if (pad.empty()) return toast(t("apr.hr.need"), true);
         try {
@@ -1852,9 +1888,11 @@ PAGES.appraisals = () => {
       <div class="card kpi green"><div class="l">${esc(bil(DECISIONS, "renew"))}</div><div class="v num">${n((a) => a.decision === "renew")}</div></div>
       <div class="card kpi red"><div class="l">${esc(bil(DECISIONS, "not_renew"))} / ${esc(bil(DECISIONS, "renew_conditional"))}</div><div class="v num">${n((a) => a.decision && a.decision !== "renew")}</div></div>
     </div>
+    ${canEdit() && all.some((a) => a.status === "manager" && a.token_mgr) ? `<div class="no-print" style="margin:-4px 0 12px"><button class="btn ghost" id="mgrMail" title="${esc(t("apr.mgrmail.t"))}">✉️ ${esc(t("apr.mgrmail"))}</button></div>` : ""}
     <div class="tabs no-print">${["all", "open", "done"].map((k) => `<button data-t="${k}" class="${tab === k ? "on" : ""}">${esc(t("apr.t." + k))}</button>`).join("")}</div>
     <div class="card">${aprTable(rows)}</div>`;
   $("#addApr")?.addEventListener("click", () => newAppraisal(""));
+  $("#mgrMail")?.addEventListener("click", managerMail);
   $$("[data-t]").forEach((b) => b.addEventListener("click", () => { tableState.aprTab = b.dataset.t; route(); }));
   bindApr($("#view"));
 };

@@ -232,6 +232,7 @@ ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS hr_name text;
 ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS hr_signed_at timestamptz;
 ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS criteria jsonb;
 ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS criteria_set text;
+ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS employee_wish text;
 `;
 
 // Editable columns per table (anything else in a request is ignored).

@@ -4,6 +4,8 @@
 import * as XLSXns from "xlsx";
 import { sheetRows } from "./parse.js";
 import { toTrash, restoreFromTrash } from "./trash.js";
+import { renewContractDoc } from "./renewals.js";
+import { createAppraisal } from "./appraisals.js";
 
 const XLSX = XLSXns.SSF ? XLSXns : XLSXns.default;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -594,6 +596,8 @@ H.master = async (db, wb) => {
 //   إلغاء النقل    → undo «منقول»: back with the permanent staff
 //   إرجاع          → bring back someone removed by mistake (from the recycle bin) — later files may add them again
 //   تأمين          → medical insurance class of the employee (القيمة = A / B / C …)
+//   تجديد العقد    → renew the contract for a year now (only when it ends within 120 days — safe to upload twice)
+//   تقييم وتجديد   → start an appraisal + renewal for the manager in «القيمة» (الحقل = manager's title); skipped if one is open
 //   إلغاء قيد الإصدار → undo «قيد الإصدار» for a document (الحقل = which document)
 const FIX_FIELDS = { "الاسم عربي": "name_ar", "الاسم": "name_ar", "الاسم إنجليزي": "name_en", "الجوال": "mobile", "الإيميل": "email", "القسم": "department", "القطاع": "sector", "المسمى": "job_title", "المسمى الوظيفي": "job_title", "مهنة قوى": "qiwa_job", "مهنة الإقامة": "iqama_job", "الجنسية": "nationality", "الجنس": "gender", "الميلاد": "birth_date", "الانضمام": "join_date", "المباشرة": "start_date", "الدرجة": "grade", "الإجازة": "leave_days", "الأساسي": "basic_salary", "الراتب الأساسي": "basic_salary", "السكن": "housing", "النقل": "transport", "الإجمالي": "total_salary", "الراتب الإجمالي": "total_salary", "البنك": "bank", "الآيبان": "iban", "الشركة": "company", "الرقم الوظيفي": "emp_no", "ساعات العمل": "work_hours", "ملاحظات": "notes" };
 const FIX_DOCS = { "الإقامة": "iqama", "الجواز": "passport", "الشهادة الصحية": "health", "أجير": "ajeer", "رخصة العمل": "work_permit", "العقد": "contract", "التأمين": "insurance" };
@@ -698,6 +702,21 @@ H.fixes = async (db, wb) => {
          ON CONFLICT (id_no) DO UPDATE SET class = EXCLUDED.class, employee_id = EXCLUDED.employee_id`,
         [e.id, p.name_en || p.name_ar || id, id, cls, p.gender, p.nationality, p.birth_date, p.mobile]);
       out.push(`🩺 ${nm(e)}: فئة التأمين ← ${cls}`);
+    } else if (act === "تجديد العقد") {
+      const c = (await db.query("SELECT * FROM documents WHERE employee_id = $1 AND doc_type = 'contract'", [e.id]))[0];
+      const exp = c?.expiry_date instanceof Date ? c.expiry_date.toISOString().slice(0, 10) : c?.expiry_date ? String(c.expiry_date).slice(0, 10) : null;
+      if (!exp) { out.push(`❔ ${nm(e)}: ما عنده عقد بتاريخ انتهاء`); continue; }
+      const soon = new Date(Date.now() + 120 * 864e5).toISOString().slice(0, 10);
+      if (exp > soon) { out.push(`↩ ${nm(e)}: العقد ساري لين ${exp} — مجدد من قبل`); done++; continue; }
+      const r2 = await renewContractDoc(db, c, "manual");
+      out.push(`🔁 ${nm(e)}: تجدد العقد سنة — من ${r2.start} إلى ${r2.end}`);
+    } else if (act === "تقييم وتجديد") {
+      const mname = txt(val);
+      if (!mname) { out.push(`❔ ${nm(e)}: اكتب اسم المدير في «القيمة»`); continue; }
+      const open = (await db.query("SELECT id FROM appraisals WHERE employee_id = $1 AND (status <> 'completed' OR created_at > now() - interval '60 days') LIMIT 1", [e.id]))[0];
+      if (open) { out.push(`↩ ${nm(e)}: عنده تقييم من قبل (رقم ${open.id})`); done++; continue; }
+      const a = await createAppraisal(db, { employee_id: e.id, manager_name: mname, manager_title: field, period: String(new Date().getFullYear()), created_by: "تصحيحات" });
+      out.push(`📝 ${nm(e)}: انعمل تقييم وتجديد عقد — المدير ${mname} (الرابط في صفحة «التقييم وتجديد العقود»)${a ? "" : " ❔"}`);
     } else if (act === "مطابقة صحيحة") {
       // Checked on every platform: everything is correct.
       const np = { ...((await db.query("SELECT platform FROM employees WHERE id = $1", [e.id]))[0]?.platform || {}) };

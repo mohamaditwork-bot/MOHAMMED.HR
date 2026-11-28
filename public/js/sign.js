@@ -35,7 +35,9 @@ function sigBlock(label, name) {
   return `<div class="card"><h3>${label}</h3>
     <label class="lbl">الاسم / Name<input class="input" id="sname" value="${esc(name || "")}" required></label>
     <div class="sig-area"><canvas id="sig"></canvas><span class="sig-ph" id="sigph">وقّع هنا بإصبعك أو الماوس — Sign here</span></div>
-    <div class="sign-row"><button class="btn ghost sm" type="button" id="sclear">مسح / Clear</button></div>
+    <div class="sign-row"><button class="btn ghost sm" type="button" id="sclear">مسح / Clear</button>
+      <label class="btn ghost sm" for="supl" style="cursor:pointer">📷 رفع صورة التوقيع / Upload signature photo</label><input type="file" id="supl" accept="image/*" hidden></div>
+    <p class="muted small" style="margin:6px 0 0">وقّع بإصبعك، أو صوّر توقيعك على ورقة بيضاء وارفعه — Sign with your finger, or upload a photo of your signature on white paper.</p>
     <p class="msg err" id="serr"></p>
     <button class="btn big-btn" id="ssend">✍️ اعتماد وتوقيع / Sign &amp; submit</button></div>`;
 }
@@ -83,9 +85,16 @@ function managerForm(d) {
 function employeeForm(d) {
   view.innerHTML = `<div class="card sign-note">اطّلع على تقييمك وقرار تجديد العقد أدناه، ثم وقّع للعلم والاستلام. توقيعك يعني الاطلاع وليس بالضرورة الموافقة — تقدر تكتب ملاحظاتك.</div>
     ${renderDoc(d)}
-    <div class="card"><label class="lbl">ملاحظات الموظف (اختياري) / Your comments<textarea class="input" id="cmt" rows="3"></textarea></label></div>
+    <div class="card"><h3>رغبتك في تجديد العقد / Your contract renewal</h3>
+      <div class="decs"><label class="dec renew"><input type="radio" name="wish" value="renew"><b>أرغب في تجديد عقد عملي</b><small>I wish to renew my employment contract</small></label>
+        <label class="dec not_renew"><input type="radio" name="wish" value="not_renew"><b>لا أرغب في تجديد عقد عملي</b><small>I do not wish to renew my employment contract</small></label></div>
+      <label class="lbl">ملاحظات الموظف (اختياري) / Your comments<textarea class="input" id="cmt" rows="3"></textarea></label></div>
     ${sigBlock("توقيع الموظف / Employee signature", d.employee.name_ar)}`;
-  wireSign((body) => ({ ...body, comment: $("#cmt").value }), async () => {
+  wireSign((body) => {
+    const w = view.querySelector('input[name="wish"]:checked')?.value;
+    if (!w) { $("#serr").textContent = "اختر رغبتك في تجديد العقد — Choose whether you wish to renew"; return null; }
+    return { ...body, wish: w, comment: $("#cmt").value };
+  }, async () => {
     const r = await fetch("/api/sign?token=" + encodeURIComponent(tok));
     done(await r.json(), `<div class="card sign-msg"><div class="big">✅</div><h2>شكرًا — تم التوقيع وحُفظ النموذج لدى الموارد البشرية</h2></div>`);
   });
@@ -94,11 +103,16 @@ function employeeForm(d) {
 function wireSign(build, after) {
   const pad = sigPad($("#sig"), (has) => { $("#sigph").style.display = has ? "none" : ""; });
   $("#sclear").onclick = () => pad.clear();
+  $("#supl").onchange = async (ev) => {
+    const f = ev.target.files?.[0]; ev.target.value = "";
+    try { if (f) await pad.load(f); $("#serr").textContent = ""; } catch { $("#serr").textContent = "تعذر قراءة الصورة — جرّب صورة ثانية"; }
+  };
   $("#ssend").onclick = async () => {
     const err = $("#serr"); err.textContent = "";
     if (!$("#sname").value.trim()) return (err.textContent = "اكتب اسمك");
     if (pad.empty()) return (err.textContent = "التوقيع مطلوب — وقّع في المربع");
     const body = build({ token: tok, name: $("#sname").value.trim(), sig: pad.get() });
+    if (!body) return;
     $("#ssend").disabled = true;
     try {
       const r = await fetch("/api/sign", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
