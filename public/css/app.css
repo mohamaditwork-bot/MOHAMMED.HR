@@ -590,3 +590,38 @@ tbody tr:hover .row-acts { opacity: 1; }
 /* New appraisal: criteria preview */
 .apr-crit { background: var(--surface-2); border-radius: 10px; padding: 10px 14px; font-size: 13px; }
 .apr-crit ol { margin: 6px 0 0; padding-inline-start: 20px; line-height: 1.8; }
+
+/* «إشعار تجديد عقد العمل» — second page of the appraisal, laid out like the hotel's paper form */
+.rn-page { margin-top: 26px; padding-top: 18px; border-top: 2px dashed #d6d9e6; color: #111; }
+.rn-head { text-align: center; margin-bottom: 12px; }
+.rn-head img { height: 38px; }
+.rn-head h2 { margin: 8px 0 0; color: #1f3864; font-size: 17px; letter-spacing: .4px; }
+.rn-head h3 { margin: 2px 0 0; color: #1f3864; font-size: 15px; }
+table.rn { width: 100%; border-collapse: collapse; font-size: 12.5px; direction: ltr; }
+table.rn td, table.rn th { border: 1px solid #c9cfe0; padding: 8px 12px; vertical-align: top; width: 50%; line-height: 1.95; white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 640px) { table.rn { font-size: 11.5px; } table.rn td, table.rn th { padding: 6px 7px; line-height: 1.8; } .rn-sig img { max-width: 160px; height: 48px; } }
+table.rn th { position: static; cursor: default; user-select: auto; z-index: auto; }
+table.rn tr.rn-sec th { background: #eef2fa; color: #1f3864; text-decoration: underline; font-size: 12.5px; }
+table.rn [dir="ltr"] { text-align: left; }
+table.rn [dir="rtl"] { text-align: right; }
+table.rn mark { background: #fff2a8; padding: 0 3px; }
+.rn-box { display: inline-flex; width: 14px; height: 14px; border: 1.5px solid #1f3864; border-radius: 3px; align-items: center; justify-content: center; font-size: 11px; line-height: 1; margin: 0 4px; vertical-align: -2px; }
+.rn-box.on { background: #1f3864; color: #fff; }
+.rn-signl { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.rn-signl span { color: #555; white-space: nowrap; }
+.rn-sig { display: flex; align-items: center; gap: 8px; min-height: 56px; }
+.rn-sig img { height: 56px; max-width: 220px; object-fit: contain; }
+@media print {
+  .appraisal-doc .report-head { margin-bottom: 10px; padding-bottom: 8px; }
+  .appraisal-doc .rtable { font-size: 11px; margin-bottom: 4px; }
+  .appraisal-doc .rtable th, .appraisal-doc .rtable td { padding: 3px 6px; line-height: 1.35; }
+  .appraisal-doc .rsec { margin: 10px 0 6px; font-size: 13.5px; }
+  .appraisal-doc .rsum { margin-bottom: 8px; } .appraisal-doc .rsum div { padding: 5px 10px; } .appraisal-doc .rsum b { font-size: 16px; }
+  .appraisal-doc .ad-sigs { margin-top: 10px; gap: 10px; } .appraisal-doc .ad-sig { min-height: 0; padding: 6px; }
+  .appraisal-doc .ad-sig img, .appraisal-doc .ad-sig-empty { height: 50px; }
+  .rn-head { margin-bottom: 8px; } .rn-head img { height: 30px; } .rn-head h2 { font-size: 15px; margin-top: 4px; } .rn-head h3 { font-size: 13.5px; }
+  table.rn { font-size: 11px; } table.rn td, table.rn th { padding: 4px 9px; line-height: 1.6; }
+  table.rn tr.rn-sec th { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-size: 11.5px; }
+  .rn-signl { flex-wrap: nowrap; } .rn-sig { min-height: 40px; } .rn-sig img { height: 40px; max-width: 170px; }
+}
+@media print { .rn-page { break-before: page; page-break-before: always; border-top: 0; margin-top: 0; padding-top: 0; } table.rn tr { break-inside: avoid; } }

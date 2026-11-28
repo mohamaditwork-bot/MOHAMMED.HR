@@ -140,6 +140,7 @@ export function leavingReason(contractDoc, appraisals = []) {
   if (det.renewal?.employee_wish === "N") return "الموظف لا يرغب بالتجديد";
   const last = appraisals.find((a) => a.decision);
   if (last?.decision === "not_renew") return "قرار التقييم: عدم التجديد";
+  if (last?.employee_wish === "not_renew") return "الموظف لا يرغب بالتجديد (التقييم)";
   return null;
 }
 
@@ -152,7 +153,7 @@ export function renewalReady(doc, appraisals = [], attachments = []) {
   const lastRenewal = hist.length ? String(hist[hist.length - 1].at || "") : "";
   const r = det.renewal;
   if (r && r.recommendation === "R" && r.employee_wish !== "N" && !(lastRenewal && (!r.at || String(r.at) <= lastRenewal))) return "form";
-  const apr = appraisals.find((a) => a.status === "completed" && (a.decision === "renew" || a.decision === "renew_conditional") && String(a.created_at || "").slice(0, 10) > issue);
+  const apr = appraisals.find((a) => a.status === "completed" && (a.decision === "renew" || a.decision === "renew_conditional") && a.employee_wish !== "not_renew" && String(a.created_at || "").slice(0, 10) > issue);
   if (apr) return "appraisal";
   const file = attachments.find((a) => a.employee_id === doc.employee_id && /تجديد|renewal|new contract/i.test(a.file_name || "") && String(a.created_at || "").slice(0, 10) > issue);
   if (file) return "file";

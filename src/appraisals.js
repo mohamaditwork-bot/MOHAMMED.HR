@@ -59,8 +59,10 @@ const iso = (v) => (v instanceof Date ? v.toISOString() : v);
 async function byToken(db, tok) {
   if (!tok || tok.length < 20) return null;
   const r = await db.query(
-    `SELECT a.*, e.name_ar, e.name_en, e.job_title, e.department, e.join_date, e.emp_no
+    `SELECT a.*, e.name_ar, e.name_en, e.job_title, e.department, e.join_date, e.emp_no,
+            c.issue_date AS contract_start, c.expiry_date AS contract_end
        FROM appraisals a JOIN employees e ON e.id = a.employee_id
+       LEFT JOIN documents c ON c.employee_id = a.employee_id AND c.doc_type = 'contract'
       WHERE a.token_mgr = $1 OR a.token_emp = $1`,
     [tok]
   );
@@ -70,8 +72,9 @@ async function byToken(db, tok) {
   return a;
 }
 
+const day = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : v ? String(v).slice(0, 10) : null);
 function publicView(a) {
-  const jd = a.join_date instanceof Date ? a.join_date.toISOString().slice(0, 10) : a.join_date;
+  const jd = day(a.join_date);
   return {
     role: a.role, status: a.status, period: a.period, manager_name: a.manager_name, manager_title: a.manager_title,
     employee: { name_ar: a.name_ar, name_en: a.name_en, job_title: a.job_title, department: a.department, join_date: jd, emp_no: a.emp_no },
@@ -82,7 +85,23 @@ function publicView(a) {
     hr_sig: a.hr_sig || null, hr_name: a.hr_name || null, hr_signed_at: iso(a.hr_signed_at),
     criteria: criteriaOf(a), max_total: totalWeight(criteriaOf(a)),
     criteria_set: a.criteria_set || null, criteria_name: setNameOf(a.criteria_set),
+    // For the «إشعار تجديد عقد العمل» page.
+    employee_wish: a.employee_wish || null, contract: { start: day(a.contract_start), end: day(a.contract_end) },
   };
+}
+
+// A new appraisal waiting for the manager, with the criteria of the employee's department (or the set chosen).
+export async function createAppraisal(db, { employee_id, manager_name, manager_title, period, criteria_set, created_by }) {
+  const e = (await db.query("SELECT department, job_title FROM employees WHERE id = $1", [employee_id]))[0];
+  if (!e) return null;
+  const setKey = CRITERIA_SETS[criteria_set] ? criteria_set : setFor(e.department, e.job_title);
+  const r = await db.query(
+    `INSERT INTO appraisals (employee_id, period, manager_name, manager_title, status, token_mgr, expires_at, created_by, criteria, criteria_set)
+     VALUES ($1,$2,$3,$4,'manager',$5, now() + interval '30 days', $6, $7, $8) RETURNING id, token_mgr`,
+    [employee_id, String(period || "").slice(0, 60) || null, String(manager_name).trim().slice(0, 120), String(manager_title || "").slice(0, 120) || null,
+      token(), created_by || null, JSON.stringify(CRITERIA_SETS[setKey].criteria), setKey]
+  );
+  return r[0];
 }
 
 // GET/POST /api/sign — used by the signer pages (no login, token only).
@@ -127,13 +146,16 @@ export async function signRoute(req, env, audit) {
     return json({ ok: true, next: "employee", employee_token: tok });
   }
   if (a.status !== "employee") return json({ error: a.status === "completed" ? "تم التوقيع مسبقًا" : "التقييم لسا عند المدير" }, 409);
+  const wish = String(body.wish || "");
+  if (!["renew", "not_renew"].includes(wish)) return json({ error: "اختر رغبتك في تجديد العقد" }, 400);
   await db.query(
-    "UPDATE appraisals SET employee_comment = $1, employee_sig = $2, employee_signed_at = now(), status = 'completed' WHERE id = $3",
-    [comment, sig, a.id]
+    "UPDATE appraisals SET employee_comment = $1, employee_sig = $2, employee_signed_at = now(), status = 'completed', employee_wish = $3 WHERE id = $4",
+    [comment, sig, wish, a.id]
   );
   await db.query(
     "INSERT INTO tasks (category, title, person, details, status, source) VALUES ('renewal', $1, $2, $3, 'open', 'appraisal')",
-    [`تقييم مكتمل — قرار العقد: ${{ renew: "تجديد", renew_conditional: "تجديد مشروط", not_renew: "عدم تجديد" }[a.decision] || a.decision}`, a.name_ar, `النتيجة ${a.total}% — ${a.period || ""}`]
+    [`تقييم مكتمل — قرار العقد: ${{ renew: "تجديد", renew_conditional: "تجديد مشروط", not_renew: "عدم تجديد" }[a.decision] || a.decision}`, a.name_ar,
+      `النتيجة ${a.total}% — ${a.period || ""} — الموظف ${wish === "renew" ? "يرغب" : "لا يرغب"} بالتجديد`]
   );
   await audit(env, { id: "sign", name: `${name} (موظف)` }, "employee_sign", "appraisals", a.id, null);
   return json({ ok: true, next: "done" });
@@ -147,15 +169,18 @@ export async function appraisalsRoute(req, env, user, audit) {
     const id = parseInt(url.searchParams.get("id") || "", 10);
     if (id) {
       const r = await db.query(
-        `SELECT a.*, e.name_ar, e.name_en, e.job_title, e.department, e.join_date, e.emp_no, e.id_no
-           FROM appraisals a JOIN employees e ON e.id = a.employee_id WHERE a.id = $1`, [id]);
+        `SELECT a.*, e.name_ar, e.name_en, e.job_title, e.department, e.join_date, e.emp_no, e.id_no,
+                c.issue_date AS contract_start, c.expiry_date AS contract_end
+           FROM appraisals a JOIN employees e ON e.id = a.employee_id
+           LEFT JOIN documents c ON c.employee_id = a.employee_id AND c.doc_type = 'contract'
+          WHERE a.id = $1`, [id]);
       if (!r[0]) return json({ error: "غير موجود" }, 404);
       const v = publicView({ ...r[0], role: "hr" });
       const canSign = user.role === "admin" || user.role === "editor";
       return json({ ...v, id, id_no: r[0].id_no, token_mgr: canSign ? r[0].token_mgr : null, token_emp: canSign ? r[0].token_emp : null, created_at: iso(r[0].created_at) });
     }
     const rows = await db.query(
-      `SELECT id, employee_id, period, manager_name, manager_title, status, total, grade, decision, decision_note,
+      `SELECT id, employee_id, period, manager_name, manager_title, status, total, grade, decision, decision_note, employee_wish,
               manager_signed_at, employee_signed_at, hr_name, hr_signed_at, token_mgr, token_emp, expires_at, created_by, created_at
          FROM appraisals ORDER BY created_at DESC`);
     // Signing links act as signatures — only people who may edit see them.
@@ -169,18 +194,11 @@ export async function appraisalsRoute(req, env, user, audit) {
     if (!emp) return json({ error: "اختر الموظف" }, 400);
     const mname = String(body.manager_name || "").trim().slice(0, 120);
     if (!mname) return json({ error: "اكتب اسم المدير المباشر" }, 400);
-    const e = (await db.query("SELECT department, job_title FROM employees WHERE id = $1", [emp]))[0];
-    if (!e) return json({ error: "الموظف غير موجود" }, 404);
     // Criteria that fit the employee's department (or the set HR picked), saved with the appraisal.
-    const setKey = CRITERIA_SETS[body.criteria_set] ? body.criteria_set : setFor(e.department, e.job_title);
-    const r = await db.query(
-      `INSERT INTO appraisals (employee_id, period, manager_name, manager_title, status, token_mgr, expires_at, created_by, criteria, criteria_set)
-       VALUES ($1,$2,$3,$4,'manager',$5, now() + interval '30 days', $6, $7, $8) RETURNING id, token_mgr`,
-      [emp, String(body.period || "").slice(0, 60) || null, mname, String(body.manager_title || "").slice(0, 120) || null, token(), user.name,
-        JSON.stringify(CRITERIA_SETS[setKey].criteria), setKey]
-    );
-    await audit(env, user, "create", "appraisals", r[0].id, { employee_id: emp });
-    return json({ ok: true, id: r[0].id, token_mgr: r[0].token_mgr });
+    const r = await createAppraisal(db, { employee_id: emp, manager_name: mname, manager_title: body.manager_title, period: body.period, criteria_set: body.criteria_set, created_by: user.name });
+    if (!r) return json({ error: "الموظف غير موجود" }, 404);
+    await audit(env, user, "create", "appraisals", r.id, { employee_id: emp });
+    return json({ ok: true, id: r.id, token_mgr: r.token_mgr });
   }
   if (req.method === "PUT") {
     // Renew link (new token, 30 more days) for the current stage.
